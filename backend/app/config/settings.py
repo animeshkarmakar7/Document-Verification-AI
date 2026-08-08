@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = 50
     LOG_LEVEL: str = "INFO"
 
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_CLASSIFICATION_BATCH_SIZE: int = 100
+
     model_config = SettingsConfigDict(
         env_file=(
             BACKEND_DIR / ".env",
