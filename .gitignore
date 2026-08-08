@@ -1,0 +1,45 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+*.env
+
+# Python / Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.manifest
+*.spec
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Databases & Local Storage
+*.db
+*.sqlite
+*.sqlite3
+uploads/
+backend/uploads/
+
+# Temporary / Scratch / Diagnostic scripts
+backend/diagnose.py
+backend/test_pipeline.py
+backend/test_models.py
+backend/list_models.py
+backend/test_candidates.py
+backend/test_structured.py

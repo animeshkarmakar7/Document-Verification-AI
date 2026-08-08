@@ -131,12 +131,12 @@ def test_classify_document_success():
     mock_classifier.classify_batch.return_value = [
         ClassificationResult(
             clause_id="doc-1-clause-0001",
-            category=ClauseCategory.PAYMENT,
+            category=ClauseCategory.PAYMENT_TERMS,
             raw_response={"category": "PAYMENT"},
         ),
         ClassificationResult(
             clause_id="doc-1-clause-0002",
-            category=ClauseCategory.TERMINATION,
+            category=ClauseCategory.TERMINATION_EXIT,
             raw_response={"category": "TERMINATION"},
         ),
     ]
@@ -145,8 +145,8 @@ def test_classify_document_success():
     res = service.classify_document("doc-1")
 
     assert len(res) == 2
-    assert res[0].category == ClauseCategory.PAYMENT
-    assert res[1].category == ClauseCategory.TERMINATION
+    assert res[0].category == ClauseCategory.PAYMENT_TERMS
+    assert res[1].category == ClauseCategory.TERMINATION_EXIT
     assert FakeDocumentRepository.document.status == DocumentStatus.CLASSIFIED
 
 
@@ -168,7 +168,7 @@ def test_list_classifications_and_get_clause_classification():
         document_id="doc-1",
         clause_pk="pk-1",
         clause_id="doc-1-clause-0001",
-        category=ClauseCategory.PAYMENT,
+        category=ClauseCategory.PAYMENT_TERMS,
         model_version="gemini-2.0-flash",
         raw_response={},
         source_start=0,
@@ -181,7 +181,7 @@ def test_list_classifications_and_get_clause_classification():
     assert len(items) == 1
 
     single = service.get_clause_classification("doc-1", "doc-1-clause-0001")
-    assert single.category == ClauseCategory.PAYMENT
+    assert single.category == ClauseCategory.PAYMENT_TERMS
 
 
 def test_get_clause_classification_not_found():

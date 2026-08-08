@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+*.env
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+uploads/
+diagnose.py
+test_pipeline.py
+test_models.py
+list_models.py
+test_candidates.py
+test_structured.py

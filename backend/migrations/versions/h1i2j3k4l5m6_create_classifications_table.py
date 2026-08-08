@@ -1,14 +1,8 @@
-"""create clause_classifications table
-
-Revision ID: h1i2j3k4l5m6
-Revises: f2e8d8b65a11
-Create Date: 2026-08-09 12:00:00.000000
-
-"""
 from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "h1i2j3k4l5m6"
 down_revision: str | Sequence[str] | None = "f2e8d8b65a11"
@@ -64,7 +58,7 @@ def upgrade() -> None:
         sa.Column("clause_id", sa.String(length=80), nullable=False),
         sa.Column(
             "category",
-            sa.Enum(
+            postgresql.ENUM(
                 "PAYMENT",
                 "TERMINATION",
                 "LIABILITY_LIMITATION",

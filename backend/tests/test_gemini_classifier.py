@@ -18,12 +18,12 @@ def test_classify_batch_success(monkeypatch):
         classifications=[
             ClauseClassificationItem(
                 clause_id="doc-1-clause-0001",
-                category=ClauseCategory.PAYMENT,
+                category=ClauseCategory.PAYMENT_TERMS,
                 reasoning="Rent payment terms",
             ),
             ClauseClassificationItem(
                 clause_id="doc-1-clause-0002",
-                category=ClauseCategory.TERMINATION,
+                category=ClauseCategory.TERMINATION_EXIT,
                 reasoning="Termination notice",
             ),
         ]
@@ -41,9 +41,9 @@ def test_classify_batch_success(monkeypatch):
 
     assert len(results) == 2
     assert results[0].clause_id == "doc-1-clause-0001"
-    assert results[0].category == ClauseCategory.PAYMENT
+    assert results[0].category == ClauseCategory.PAYMENT_TERMS
     assert results[1].clause_id == "doc-1-clause-0002"
-    assert results[1].category == ClauseCategory.TERMINATION
+    assert results[1].category == ClauseCategory.TERMINATION_EXIT
 
 
 def test_classify_batch_empty():

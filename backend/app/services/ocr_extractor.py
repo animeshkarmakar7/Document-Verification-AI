@@ -3,11 +3,15 @@ from dataclasses import dataclass
 from io import BytesIO
 from zipfile import ZipFile
 
+from google import genai
+from google.genai import types
 from pypdf import PdfReader
+
+from app.config.settings import settings
 
 
 class OCRExtractionError(Exception):
-    """Raised when text extraction cannot complete."""
+    pass
 
 
 @dataclass(frozen=True)
@@ -32,9 +36,11 @@ class LocalOCRExtractor:
         if extension == ".docx":
             return self._extract_docx(content)
 
+        if extension in {".png", ".jpg", ".jpeg", ".webp", ".tiff"}:
+            return self._extract_image(content, extension)
+
         raise OCRExtractionError(
-            "Local OCR extraction is only available "
-            "for text-based PDF and DOCX files."
+            f"Unsupported file format for OCR: {extension}"
         )
 
     def _extract_pdf(self, content: bytes) -> OCRExtraction:
@@ -55,7 +61,7 @@ class LocalOCRExtractor:
         if not text:
             raise OCRExtractionError(
                 "No text was extracted. This may be a scanned PDF "
-                "that needs Google Document AI OCR."
+                "that needs image-based Document OCR."
             )
 
         return OCRExtraction(
@@ -108,3 +114,52 @@ class LocalOCRExtractor:
                 ]
             },
         )
+
+    def _extract_image(self, content: bytes, extension: str) -> OCRExtraction:
+        mime_map = {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".webp": "image/webp",
+            ".tiff": "image/tiff",
+        }
+        mime_type = mime_map.get(extension, "image/jpeg")
+
+        try:
+            client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            image_part = types.Part.from_bytes(
+                data=content,
+                mime_type=mime_type,
+            )
+            prompt = (
+                "Extract all printed and handwritten text from this legal document image "
+                "verbatim. Preserve layout, numbered section titles, paragraphs, and formatting. "
+                "Do not add summary commentary."
+            )
+            response = client.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=[image_part, prompt],
+            )
+            extracted_text = (response.text or "").strip()
+
+            if not extracted_text:
+                raise OCRExtractionError(
+                    f"No text could be extracted from image ({extension})."
+                )
+
+            return OCRExtraction(
+                text=extracted_text,
+                page_count=1,
+                layout={
+                    "pages": [
+                        {
+                            "page_number": 1,
+                            "text": extracted_text,
+                        }
+                    ]
+                },
+            )
+        except Exception as exc:
+            raise OCRExtractionError(
+                f"Image OCR failed for {extension}: {exc}"
+            ) from exc

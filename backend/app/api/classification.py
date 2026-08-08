@@ -15,6 +15,7 @@ from app.services.classification_service import (
     ClauseClassificationService,
     DocumentNotReadyForClassificationError,
 )
+from app.services.gemini_classifier import ClassificationError
 from app.services.ocr_service import DocumentNotFoundError
 
 router = APIRouter(
@@ -56,6 +57,12 @@ def classify_document(
     except DocumentNotReadyForClassificationError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    except ClassificationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
             detail=str(exc),
         ) from exc
 

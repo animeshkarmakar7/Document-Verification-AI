@@ -21,7 +21,7 @@ _NOW = datetime.now(UTC)
 def _make_classification(
     document_id: str = "doc-1",
     clause_id: str = "doc-1-clause-0001",
-    category: ClauseCategory = ClauseCategory.PAYMENT,
+    category: ClauseCategory = ClauseCategory.PAYMENT_TERMS,
 ) -> ClauseClassification:
     item = ClauseClassification(
         document_id=document_id,
@@ -56,7 +56,7 @@ def test_classify_returns_200(client, monkeypatch):
     body = response.json()
     assert body["document_id"] == "doc-1"
     assert body["classified_count"] == 1
-    assert body["classifications"][0]["category"] == "PAYMENT"
+    assert body["classifications"][0]["category"] == "PAYMENT_TERMS"
 
 
 def test_classify_404_doc_not_found(client, monkeypatch):
@@ -109,7 +109,7 @@ def test_get_clause_classification_200(client, monkeypatch):
     response = client.get(f"{BASE}/doc-1/clauses/doc-1-clause-0001/classification")
     assert response.status_code == 200
     body = response.json()
-    assert body["category"] == "PAYMENT"
+    assert body["category"] == "PAYMENT_TERMS"
 
 
 def test_get_clause_classification_404_not_found(client, monkeypatch):
