@@ -1,0 +1,10 @@
+from enum import Enum
+
+
+class DocumentStatus(str, Enum):
+    UPLOADED = "UPLOADED"
+    QUEUED = "QUEUED"
+    PROCESSING = "PROCESSING"
+    OCR_COMPLETE = "OCR_COMPLETE"
+    CLAUSES_SEGMENTED = "CLAUSES_SEGMENTED"
+    FAILED = "FAILED"
