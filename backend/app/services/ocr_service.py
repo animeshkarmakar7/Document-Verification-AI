@@ -49,6 +49,11 @@ class OCRService:
         if document.status not in {
             DocumentStatus.QUEUED,
             DocumentStatus.FAILED,
+            DocumentStatus.OCR_COMPLETE,
+            DocumentStatus.CLAUSES_SEGMENTED,
+            DocumentStatus.CLASSIFIED,
+            DocumentStatus.RISK_SCORED,
+            DocumentStatus.EXPLAINED,
         }:
             raise DocumentNotReadyForOCRError(
                 f"Document is not ready for OCR. Current status: "

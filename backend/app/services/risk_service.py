@@ -15,6 +15,12 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
+def _val(x) -> str:
+    if x is None:
+        return "OTHER"
+    return x.value if hasattr(x, "value") else str(x)
+
+
 class RiskServiceError(Exception):
     pass
 
@@ -51,10 +57,11 @@ class RiskService:
         valid_statuses = {
             DocumentStatus.CLASSIFIED,
             DocumentStatus.RISK_SCORED,
+            DocumentStatus.EXPLAINED,
         }
         if doc.status not in valid_statuses:
             raise InvalidDocumentStatusError(
-                f"Document '{document_id}' status is '{doc.status.value}'. Must be CLASSIFIED or RISK_SCORED."
+                f"Document '{document_id}' status is '{doc.status.value}'. Must be CLASSIFIED, RISK_SCORED, or EXPLAINED."
             )
 
         existing_risks = self.risk_repo.list_by_document(document_id)
@@ -75,11 +82,11 @@ class RiskService:
         clause_obj_map = {}
         for clause in clauses:
             classification = class_map.get(clause.id)
-            cat = classification.category if classification else None
+            cat_str = _val(classification.category) if classification else "OTHER"
             inputs.append(
                 InputClauseToEvaluate(
                     clause_id=clause.clause_id,
-                    category=cat or "OTHER",
+                    category=cat_str,
                     text=clause.text,
                 )
             )
@@ -103,7 +110,8 @@ class RiskService:
             risk_entities.append(risk)
 
         saved_risks = self.risk_repo.create_many(risk_entities)
-        doc.status = DocumentStatus.RISK_SCORED
+        if doc.status != DocumentStatus.EXPLAINED:
+            doc.status = DocumentStatus.RISK_SCORED
         self.db.commit()
 
         return saved_risks
@@ -114,16 +122,20 @@ class RiskService:
             raise DocumentNotFoundError(f"Document '{document_id}' not found")
 
         risks = self.risk_repo.list_by_document(document_id)
-        if not risks and doc.status == DocumentStatus.CLASSIFIED:
+        if not risks and doc.status in {
+            DocumentStatus.CLASSIFIED,
+            DocumentStatus.RISK_SCORED,
+            DocumentStatus.EXPLAINED,
+        }:
             risks = self.score_document_risk(document_id)
 
         classifications = self.class_repo.list_by_document(document_id)
-        class_map = {c.clause_pk: c.category.value for c in classifications}
+        class_map = {c.clause_pk: _val(c.category) for c in classifications}
 
         total_clauses = len(risks)
-        high_count = sum(1 for r in risks if r.risk_level == RiskLevel.HIGH)
-        medium_count = sum(1 for r in risks if r.risk_level == RiskLevel.MEDIUM)
-        low_count = sum(1 for r in risks if r.risk_level == RiskLevel.LOW)
+        high_count = sum(1 for r in risks if _val(r.risk_level) == "HIGH")
+        medium_count = sum(1 for r in risks if _val(r.risk_level) == "MEDIUM")
+        low_count = sum(1 for r in risks if _val(r.risk_level) == "LOW")
 
         if total_clauses > 0:
             avg_risk = sum(r.risk_score for r in risks) / total_clauses
@@ -135,22 +147,25 @@ class RiskService:
         category_breakdown = {}
         for r in risks:
             cat = class_map.get(r.clause_pk, "OTHER")
+            r_level = _val(r.risk_level)
             if cat not in category_breakdown:
                 category_breakdown[cat] = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
-            category_breakdown[cat][r.risk_level.value] += 1
+            if r_level not in category_breakdown[cat]:
+                category_breakdown[cat][r_level] = 0
+            category_breakdown[cat][r_level] += 1
 
         high_risk_details = [
             {
                 "clause_id": r.clause_id,
                 "category": class_map.get(r.clause_pk, "OTHER"),
-                "risk_level": r.risk_level.value,
+                "risk_level": _val(r.risk_level),
                 "risk_score": r.risk_score,
                 "risk_reason": r.risk_reason,
-                "flag_type": r.flag_type.value,
+                "flag_type": _val(r.flag_type),
                 "suggested_mitigation": r.suggested_mitigation,
             }
             for r in risks
-            if r.risk_level == RiskLevel.HIGH
+            if _val(r.risk_level) == "HIGH"
         ]
 
         return {
@@ -166,10 +181,10 @@ class RiskService:
                 {
                     "clause_id": r.clause_id,
                     "clause_pk": r.clause_pk,
-                    "risk_level": r.risk_level.value,
+                    "risk_level": _val(r.risk_level),
                     "risk_score": r.risk_score,
                     "risk_reason": r.risk_reason,
-                    "flag_type": r.flag_type.value,
+                    "flag_type": _val(r.flag_type),
                     "suggested_mitigation": r.suggested_mitigation,
                     "created_at": r.created_at,
                 }

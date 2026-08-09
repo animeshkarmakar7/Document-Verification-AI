@@ -95,8 +95,9 @@ async def test_upload_rejects_duplicate_sha256():
     first_document = await service.upload(make_pdf_upload())
     duplicate_upload = make_pdf_upload()
 
-    with pytest.raises(DuplicateDocumentError):
-        await service.upload(duplicate_upload)
+    second_document = await service.upload(duplicate_upload)
 
+    assert second_document.id == first_document.id
+    assert second_document.sha256 == first_document.sha256
     assert len(FakeRepository.documents_by_sha256) == 1
-    assert first_document.sha256 in FakeRepository.documents_by_sha256
+

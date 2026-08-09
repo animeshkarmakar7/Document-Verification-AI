@@ -63,6 +63,9 @@ class GeminiClassifier:
         if not clauses:
             return []
 
+        if not self.api_key:
+            raise ClassificationError("GEMINI_API_KEY is missing.")
+
         prompt_payload = [
             {
                 "clause_id": c["clause_id"],
@@ -94,7 +97,7 @@ class GeminiClassifier:
             )
 
             if not response.text:
-                raise ClassificationError("Empty response from Gemini API.")
+                raise ClassificationError("Empty response from Gemini classification API.")
 
             parsed_data = json.loads(response.text)
             batch_output = ClauseClassificationBatchOutput.model_validate(parsed_data)
@@ -127,5 +130,5 @@ class GeminiClassifier:
             return results
 
         except Exception as exc:
-            logger.exception("Gemini classification failed")
+            logger.warning(f"Gemini classification failed: {exc}")
             raise ClassificationError(f"Gemini API error: {exc}") from exc

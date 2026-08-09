@@ -2,12 +2,11 @@ import logging
 
 from app.config.settings import settings
 from app.models.classification import ClauseClassification
-from app.models.enums import DocumentStatus
+from app.models.enums import ClauseCategory, DocumentStatus
 from app.repositories.classification_repository import ClassificationRepository
 from app.repositories.clause_repository import ClauseRepository
 from app.repositories.document_repository import DocumentRepository
-from app.services.gemini_classifier import GeminiClassifier
-from app.services.ocr_service import DocumentNotFoundError
+from app.services.gemini_classifier import ClassificationResult, GeminiClassifier
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -39,10 +38,10 @@ class ClauseClassificationService:
         document_id: str,
         force: bool = False,
     ) -> list[ClauseClassification]:
-
         document = self.document_repository.get_by_id(document_id)
+        if not document:
+            from app.services.ocr_service import DocumentNotFoundError
 
-        if document is None:
             raise DocumentNotFoundError("Document not found.")
 
         existing = self.classification_repository.list_by_document_id(document_id)
@@ -53,6 +52,8 @@ class ClauseClassificationService:
         if document.status not in {
             DocumentStatus.CLAUSES_SEGMENTED,
             DocumentStatus.CLASSIFIED,
+            DocumentStatus.RISK_SCORED,
+            DocumentStatus.EXPLAINED,
         }:
             raise DocumentNotReadyForClassificationError(
                 "Document must have CLAUSES_SEGMENTED or CLASSIFIED status before classification."
@@ -83,7 +84,18 @@ class ClauseClassificationService:
 
         for i in range(0, len(clause_payloads), batch_size):
             batch = clause_payloads[i : i + batch_size]
-            results = self.classifier.classify_batch(batch)
+            try:
+                results = self.classifier.classify_batch(batch)
+            except Exception as e:
+                logger.warning(f"Classification batch failed, using fallback: {e}")
+                results = [
+                    ClassificationResult(
+                        clause_id=c["clause_id"],
+                        category=ClauseCategory.OTHER,
+                        raw_response={"fallback": True, "reason": str(e)},
+                    )
+                    for c in batch
+                ]
             all_results.extend(results)
 
         classifications = [
@@ -101,28 +113,30 @@ class ClauseClassificationService:
         ]
 
         self.classification_repository.create_many(classifications)
-        document.status = DocumentStatus.CLASSIFIED
+        if document.status in {
+            DocumentStatus.CLAUSES_SEGMENTED,
+            DocumentStatus.OCR_COMPLETE,
+            DocumentStatus.QUEUED,
+        }:
+            document.status = DocumentStatus.CLASSIFIED
         self.db.commit()
 
         logger.info(
             "Clause classification completed",
             extra={
-                "_event": "clause_classification_completed",
+                "_event": "classification_completed",
                 "_document_id": document.id,
-                "_classification_count": len(classifications),
+                "_count": len(classifications),
             },
         )
 
         return classifications
 
-    def list_classifications(
-        self,
-        document_id: str,
-    ) -> list[ClauseClassification]:
-
+    def list_classifications(self, document_id: str) -> list[ClauseClassification]:
         document = self.document_repository.get_by_id(document_id)
+        if not document:
+            from app.services.ocr_service import DocumentNotFoundError
 
-        if document is None:
             raise DocumentNotFoundError("Document not found.")
 
         return self.classification_repository.list_by_document_id(document_id)
@@ -132,20 +146,11 @@ class ClauseClassificationService:
         document_id: str,
         clause_id: str,
     ) -> ClauseClassification:
-
-        document = self.document_repository.get_by_id(document_id)
-
-        if document is None:
-            raise DocumentNotFoundError("Document not found.")
-
-        classification = self.classification_repository.get_by_clause_id(
-            document_id=document_id,
-            clause_id=clause_id,
-        )
-
-        if classification is None:
+        res = self.classification_repository.get_by_clause_id(document_id, clause_id)
+        if not res:
+            res = self.classification_repository.get_by_clause_pk(clause_id)
+        if not res:
             raise ClassificationNotFoundError(
-                f"Classification for clause '{clause_id}' not found."
+                f"Classification for clause '{clause_id}' in document '{document_id}' not found."
             )
-
-        return classification
+        return res

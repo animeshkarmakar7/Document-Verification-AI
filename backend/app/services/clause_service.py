@@ -55,6 +55,9 @@ class ClauseSegmentationService:
             not in {
                 DocumentStatus.OCR_COMPLETE,
                 DocumentStatus.CLAUSES_SEGMENTED,
+                DocumentStatus.CLASSIFIED,
+                DocumentStatus.RISK_SCORED,
+                DocumentStatus.EXPLAINED,
             }
         ):
             raise DocumentNotReadyForSegmentationError(

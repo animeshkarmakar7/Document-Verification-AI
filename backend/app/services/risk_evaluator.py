@@ -77,7 +77,8 @@ class GeminiRiskEvaluator:
             "Clauses to evaluate:\n"
         )
         for c in clauses:
-            prompt += f"--- Clause ID: {c.clause_id} | Category: {c.category.value} ---\n{c.text}\n\n"
+            cat_str = c.category.value if hasattr(c.category, "value") else str(c.category)
+            prompt += f"--- Clause ID: {c.clause_id} | Category: {cat_str} ---\n{c.text}\n\n"
 
         try:
             response = self.client.models.generate_content(

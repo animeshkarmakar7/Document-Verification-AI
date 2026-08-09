@@ -16,6 +16,12 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 
+def _val(x) -> str:
+    if x is None:
+        return "OTHER"
+    return x.value if hasattr(x, "value") else str(x)
+
+
 class ExplanationServiceError(Exception):
     pass
 
@@ -74,7 +80,7 @@ class ExplanationService:
         clause_map = {}
         for clause in clauses:
             classification = class_map.get(clause.id)
-            cat = classification.category.value if classification else "OTHER"
+            cat = _val(classification.category) if classification else "OTHER"
             inputs.append(
                 InputClauseToExplain(
                     clause_id=clause.clause_id,
@@ -138,6 +144,13 @@ class ExplanationService:
             raise DocumentNotFoundError(f"Document '{document_id}' not found")
 
         explanations = self.expl_repo.list_by_document(document_id)
+        if not explanations and doc.status in {
+            DocumentStatus.RISK_SCORED,
+            DocumentStatus.EXPLAINED,
+            DocumentStatus.CLASSIFIED,
+        }:
+            explanations = self.explain_document(document_id)
+
         if not explanations:
             return {
                 "document_id": document_id,
