@@ -20,3 +20,7 @@ class ChatRepository:
         self.db.add(message)
         self.db.flush()
         return message
+
+    def list_by_document_id(self, document_id: str) -> list[ChatMessage]:
+        """Alias for list_by_document."""
+        return self.list_by_document(document_id)

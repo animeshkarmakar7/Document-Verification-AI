@@ -55,3 +55,17 @@ class ClassificationRepository:
             ClauseClassification.document_id == document_id
         )
         self.db.execute(statement)
+
+    def list_by_document(
+        self,
+        document_id: str,
+    ) -> list[ClauseClassification]:
+        """Alias for list_by_document_id."""
+        return self.list_by_document_id(document_id)
+
+    def delete_by_document(
+        self,
+        document_id: str,
+    ) -> None:
+        """Alias for delete_by_document_id."""
+        return self.delete_by_document_id(document_id)

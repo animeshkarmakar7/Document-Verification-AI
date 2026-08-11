@@ -112,11 +112,12 @@ class GeminiRiskEvaluator:
         high_matches = [kw for kw in HIGH_RISK_KEYWORDS if kw in text_lower]
         med_matches = [kw for kw in MEDIUM_RISK_KEYWORDS if kw in text_lower]
 
-        if high_matches or clause.category in {
-            ClauseCategory.TERMINATION_EXIT,
-            ClauseCategory.PENALTY_FEES,
-            ClauseCategory.LIABILITY_LIMITATION,
-            ClauseCategory.INDEMNIFICATION,
+        cat_str = clause.category.value if hasattr(clause.category, "value") else str(clause.category)
+        if high_matches or cat_str in {
+            "TERMINATION_EXIT",
+            "PENALTY_FEES",
+            "LIABILITY_LIMITATION",
+            "INDEMNIFICATION",
         }:
             if high_matches:
                 risk_level = RiskLevel.HIGH
@@ -128,7 +129,7 @@ class GeminiRiskEvaluator:
                 risk_level = RiskLevel.MEDIUM
                 risk_score = 0.55
                 flag_type = RiskFlagType.AMBIGUOUS
-                reason = f"Category '{clause.category.value}' warrants review for hidden liabilities or strict penalties."
+                reason = f"Category '{cat_str}' warrants review for hidden liabilities or strict penalties."
                 mitigation = "Request clear cap on liabilities and symmetrical termination rights."
         elif med_matches:
             risk_level = RiskLevel.MEDIUM

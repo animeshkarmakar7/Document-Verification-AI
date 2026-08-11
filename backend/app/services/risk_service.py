@@ -21,6 +21,16 @@ def _val(x) -> str:
     return x.value if hasattr(x, "value") else str(x)
 
 
+def _clamp_score(val) -> float:
+    try:
+        f = float(val)
+        if f > 1.0:
+            f = f / 100.0 if f <= 100.0 else 1.0
+        return max(0.0, min(1.0, f))
+    except Exception:
+        return 0.5
+
+
 class RiskServiceError(Exception):
     pass
 
@@ -96,13 +106,15 @@ class RiskService:
 
         risk_entities = []
         for item in evaluated_items:
-            clause_obj = clause_obj_map[item.clause_id]
+            clause_obj = clause_obj_map.get(item.clause_id)
+            if not clause_obj:
+                continue
             risk = ClauseRisk(
                 document_id=document_id,
                 clause_id=item.clause_id,
                 clause_pk=clause_obj.id,
                 risk_level=item.risk_level,
-                risk_score=item.risk_score,
+                risk_score=_clamp_score(item.risk_score),
                 risk_reason=item.risk_reason,
                 flag_type=item.flag_type,
                 suggested_mitigation=item.suggested_mitigation,
@@ -127,7 +139,11 @@ class RiskService:
             DocumentStatus.RISK_SCORED,
             DocumentStatus.EXPLAINED,
         }:
-            risks = self.score_document_risk(document_id)
+            try:
+                risks = self.score_document_risk(document_id)
+            except Exception as e:
+                logger.warning(f"Auto risk scoring during dashboard fetch failed: {e}")
+                risks = []
 
         classifications = self.class_repo.list_by_document(document_id)
         class_map = {c.clause_pk: _val(c.category) for c in classifications}

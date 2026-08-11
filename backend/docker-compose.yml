@@ -25,6 +25,8 @@ services:
       STORAGE_REGION: us-east-1
       MAX_UPLOAD_SIZE_MB: 50
       LOG_LEVEL: INFO
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
 
     ports:
       - "8000:8000"

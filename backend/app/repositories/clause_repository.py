@@ -68,3 +68,19 @@ class ClauseRepository:
             Clause.document_id == document_id
         )
         self.db.execute(statement)
+
+    def list_by_document(
+        self,
+        document_id: str,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[Clause]:
+        """Alias for list_by_document_id."""
+        return self.list_by_document_id(document_id, limit=limit, offset=offset)
+
+    def delete_by_document(
+        self,
+        document_id: str,
+    ) -> None:
+        """Alias for delete_by_document_id."""
+        return self.delete_by_document_id(document_id)

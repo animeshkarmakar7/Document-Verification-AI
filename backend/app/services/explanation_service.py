@@ -96,7 +96,9 @@ class ExplanationService:
 
         entities = []
         for item in explained_items:
-            clause_obj = clause_map[item.clause_id]
+            clause_obj = clause_map.get(item.clause_id)
+            if not clause_obj:
+                continue
             original_fk = self.explainer.compute_readability(clause_obj.text)
             summary_fk = self.explainer.compute_readability(item.plain_summary)
 

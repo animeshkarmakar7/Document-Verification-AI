@@ -58,6 +58,15 @@ class FakeClassificationRepository:
                 return c
         return None
 
+    def get_by_clause_pk(self, clause_pk):
+        for c in self.classifications:
+            if getattr(c, "clause_pk", None) == clause_pk:
+                return c
+        return None
+
+    def list_by_document(self, document_id):
+        return self.list_by_document_id(document_id)
+
     def create_many(self, items):
         now = datetime.now(UTC)
         for item in items:

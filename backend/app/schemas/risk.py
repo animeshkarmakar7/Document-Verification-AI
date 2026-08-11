@@ -8,11 +8,11 @@ class ClauseRiskResponse(BaseModel):
     clause_id: str
     clause_pk: str
     risk_level: RiskLevel
-    risk_score: float = Field(..., ge=0.0, le=1.0)
+    risk_score: float
     risk_reason: str
     flag_type: RiskFlagType
     suggested_mitigation: str | None = None
-    created_at: datetime
+    created_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

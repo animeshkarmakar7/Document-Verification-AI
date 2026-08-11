@@ -33,3 +33,11 @@ class RiskRepository:
         stmt = delete(ClauseRisk).where(ClauseRisk.document_id == document_id)
         result = self.db.execute(stmt)
         return result.rowcount
+
+    def list_by_document_id(self, document_id: str) -> list[ClauseRisk]:
+        """Alias for list_by_document."""
+        return self.list_by_document(document_id)
+
+    def delete_by_document_id(self, document_id: str) -> int:
+        """Alias for delete_by_document."""
+        return self.delete_by_document(document_id)
