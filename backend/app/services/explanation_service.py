@@ -194,3 +194,40 @@ class ExplanationService:
                 for e in explanations
             ],
         }
+
+    def get_document_summary(self, document_id: str) -> dict:
+        doc = self.doc_repo.get_by_id(document_id)
+        if not doc:
+            raise DocumentNotFoundError(f"Document '{document_id}' not found")
+
+        clauses = self.clause_repo.list_by_document(document_id)
+        classifications = self.class_repo.list_by_document(document_id)
+        class_map = {c.clause_pk: _val(c.category) for c in classifications}
+
+        inputs = []
+        for clause in clauses:
+            cat = class_map.get(clause.id, "OTHER")
+            inputs.append(
+                InputClauseToExplain(
+                    clause_id=clause.clause_id,
+                    category=cat,
+                    text=clause.text,
+                    source_start=clause.source_start,
+                    source_end=clause.source_end,
+                )
+            )
+
+        summary_output = self.explainer.generate_document_summary(inputs)
+        return {
+            "document_id": document_id,
+            "original_filename": doc.original_filename,
+            "title": summary_output.title,
+            "document_type": summary_output.document_type,
+            "executive_summary": summary_output.executive_summary,
+            "key_points": summary_output.key_points,
+            "important_dates_fees": summary_output.important_dates_fees,
+            "user_obligations": summary_output.user_obligations,
+            "user_rights": summary_output.user_rights,
+            "total_clauses": len(clauses),
+        }
+

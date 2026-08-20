@@ -30,6 +30,16 @@ class ClauseExplanationBatchOutput(BaseModel):
     explanations: list[ClauseExplanationItem]
 
 
+class DocumentSummaryOutput(BaseModel):
+    title: str
+    document_type: str
+    executive_summary: str
+    key_points: list[str]
+    important_dates_fees: list[str]
+    user_obligations: list[str]
+    user_rights: list[str]
+
+
 @dataclass
 class InputClauseToExplain:
     clause_id: str
@@ -133,3 +143,72 @@ class GeminiExplainer:
 
     def compute_readability(self, text: str) -> float:
         return round(_flesch_kincaid_grade(text), 2)
+
+    def generate_document_summary(
+        self, clauses: list[InputClauseToExplain]
+    ) -> DocumentSummaryOutput:
+        if not clauses:
+            return DocumentSummaryOutput(
+                title="Legal Document",
+                document_type="Contract",
+                executive_summary="No clause content provided for summary generation.",
+                key_points=["Document appears empty or unsegmented."],
+                important_dates_fees=[],
+                user_obligations=[],
+                user_rights=[],
+            )
+
+        if not self.client:
+            return self._summary_fallback(clauses)
+
+        full_text = "\n\n".join(
+            f"[{c.clause_id} - {c.category}]: {c.text}" for c in clauses[:25]
+        )
+        prompt = (
+            "You are a senior legal document analyst. Synthesize the provided legal document clauses into an "
+            "Executive Document Summary Report for a layperson.\n\n"
+            "Provide:\n"
+            "- title: Clear title of the contract/document\n"
+            "- document_type: e.g. Lease Agreement, Terms of Service, NDA, Employment Contract\n"
+            "- executive_summary: A 3-4 sentence high-level overview of the purpose and scope\n"
+            "- key_points: 4-6 bullet points highlighting core terms, commitments, or conditions\n"
+            "- important_dates_fees: Bullet points of any payment terms, fees, notice periods, or dates\n"
+            "- user_obligations: What the user is required to do or comply with\n"
+            "- user_rights: What protections, rights, or services the user is granted\n\n"
+            f"Document Clauses:\n{full_text}"
+        )
+
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=DocumentSummaryOutput,
+                    temperature=0.2,
+                ),
+            )
+            raw = response.text or "{}"
+            parsed = json.loads(raw)
+            return DocumentSummaryOutput(**parsed)
+        except Exception as e:
+            logger.warning(f"Gemini document summary generation failed, using fallback: {e}")
+            return self._summary_fallback(clauses)
+
+    def _summary_fallback(self, clauses: list[InputClauseToExplain]) -> DocumentSummaryOutput:
+        categories = list(set(c.category for c in clauses))
+        total = len(clauses)
+        return DocumentSummaryOutput(
+            title="Legal Document Summary",
+            document_type="Legal Agreement",
+            executive_summary=f"This document comprises {total} clauses across key legal areas including {', '.join(categories[:4])}.",
+            key_points=[
+                f"Contains {total} segmented clauses.",
+                f"Key areas covered: {', '.join(categories[:5])}.",
+                "Review individual highlighted clauses for detailed obligation breakdowns.",
+            ],
+            important_dates_fees=["Review payment terms and notice periods in the extracted clauses."],
+            user_obligations=["Comply with specified contractual provisions and fee structures."],
+            user_rights=["Standard contractual rights as outlined in the text."],
+        )
+

@@ -10,12 +10,12 @@ from app.models.clause import Clause
 from app.repositories.chat_repository import ChatRepository
 from app.repositories.clause_repository import ClauseRepository
 from app.repositories.document_repository import DocumentRepository
-from app.services.embedding_service import ClauseEmbeddingService
+from app.services.vector_store_service import VectorStoreService, VectorSearchResult
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-SIMILARITY_THRESHOLD = 0.15
+SIMILARITY_THRESHOLD = 0.10
 
 
 class RAGServiceError(Exception):
@@ -46,26 +46,25 @@ class RAGService:
         db: Session,
         api_key: str | None = None,
         model_name: str | None = None,
+        vector_store: VectorStoreService | None = None,
     ):
         self.db = db
         self.doc_repo = DocumentRepository(db)
         self.clause_repo = ClauseRepository(db)
         self.chat_repo = ChatRepository(db)
-        self.search_service = ClauseEmbeddingService()
+        self.vector_store = vector_store or VectorStoreService()
         self.api_key = api_key or settings.GEMINI_API_KEY
         self.model_name = model_name or settings.GEMINI_MODEL
         self.client = genai.Client(api_key=self.api_key) if self.api_key else None
 
-    def chat(self, document_id: str, query: str, top_k: int = 3) -> dict:
+    def chat(self, document_id: str, query: str, top_k: int = 4) -> dict:
         doc = self.doc_repo.get_by_id(document_id)
         if not doc:
             raise DocumentNotFoundError(f"Document '{document_id}' not found")
 
         clauses = self.clause_repo.list_by_document(document_id)
         if not clauses:
-            user_msg = ChatMessage(
-                document_id=document_id, role="user", content=query
-            )
+            user_msg = ChatMessage(document_id=document_id, role="user", content=query)
             self.chat_repo.create(user_msg)
             assistant_msg = ChatMessage(
                 document_id=document_id,
@@ -86,22 +85,26 @@ class RAGService:
                 "created_at": assistant_msg.created_at,
             }
 
-        search_results = self.search_service.search_similar_clauses(
-            query=query, clauses=clauses, top_k=top_k
+        # Index clauses into ChromaDB vector store
+        try:
+            self.vector_store.index_document_clauses(document_id, clauses)
+        except Exception as e:
+            logger.warning(f"Vector store indexing skipped during chat: {e}")
+
+        # Perform hybrid vector search
+        search_results = self.vector_store.hybrid_search(
+            document_id=document_id, query=query, clauses=clauses, top_k=top_k
         )
-        retrieved_clauses = [r.clause for r in search_results]
 
         best_score = search_results[0].score if search_results else 0.0
 
-        user_msg = ChatMessage(
-            document_id=document_id, role="user", content=query
-        )
+        user_msg = ChatMessage(document_id=document_id, role="user", content=query)
         self.chat_repo.create(user_msg)
 
         if not self.client or best_score < SIMILARITY_THRESHOLD:
-            answer_data = self._generate_fallback(query, retrieved_clauses, best_score)
+            answer_data = self._generate_fallback(query, search_results, best_score)
         else:
-            answer_data = self._generate_gemini_answer(query, retrieved_clauses)
+            answer_data = self._generate_gemini_answer(query, search_results)
 
         citations_json = [c.model_dump() for c in answer_data.citations]
 
@@ -132,18 +135,23 @@ class RAGService:
         return self.chat_repo.list_by_document(document_id)
 
     def _generate_gemini_answer(
-        self, query: str, clauses: list[Clause]
+        self, query: str, search_results: list[VectorSearchResult]
     ) -> GroundedAnswerBatch:
         context_str = ""
-        for c in clauses:
-            context_str += f"--- Clause ID: {c.clause_id} (span: {c.source_start}-{c.source_end}) ---\n{c.text}\n\n"
+        for r in search_results:
+            heading_info = f" ({r.heading})" if r.heading else ""
+            context_str += (
+                f"--- Clause ID: {r.clause_id}{heading_info} (span: {r.source_start}-{r.source_end}) ---\n"
+                f"{r.text}\n\n"
+            )
 
         prompt = (
             "You are a strict, grounded legal assistant. Answer the user's question ONLY using the provided contract clauses.\n"
             "Rules:\n"
             "1. Base your answer strictly on the provided context clauses.\n"
-            "2. For every fact or claim in your answer, add a citation matching the clause_id and exact span.\n"
-            "3. If the context does not contain enough information to answer the question, state that clearly and set confidence < 0.5.\n\n"
+            "2. For every fact or claim in your answer, add a citation matching the exact clause_id and span.\n"
+            "3. Provide clear bullet points or short paragraphs for readability.\n"
+            "4. If the context does not contain enough information to answer the question, state that clearly and set confidence < 0.5.\n\n"
             f"Question: {query}\n\n"
             f"Context Clauses:\n{context_str}"
         )
@@ -163,12 +171,12 @@ class RAGService:
             return GroundedAnswerBatch(**parsed)
         except Exception as e:
             logger.warning(f"Gemini RAG call failed, using fallback: {e}")
-            return self._generate_fallback(query, clauses, 0.5)
+            return self._generate_fallback(query, search_results, 0.5)
 
     def _generate_fallback(
-        self, query: str, clauses: list[Clause], best_score: float
+        self, query: str, search_results: list[VectorSearchResult], best_score: float
     ) -> GroundedAnswerBatch:
-        if not clauses or best_score < SIMILARITY_THRESHOLD:
+        if not search_results or best_score < SIMILARITY_THRESHOLD:
             return GroundedAnswerBatch(
                 answer=(
                     "We are not confident in answering this question based on the document clauses. "
@@ -178,16 +186,16 @@ class RAGService:
                 citations=[],
             )
 
-        top_clause = clauses[0]
+        top_r = search_results[0]
         summary = (
-            f"Based on clause '{top_clause.clause_id}': \"{top_clause.text[:200]}...\". "
+            f"Based on clause '{top_r.clause_id}': \"{top_r.text[:200]}...\". "
             "Please review the highlighted section of your document for full details."
         )
         citation = GroundedCitation(
-            clause_id=top_clause.clause_id,
-            source_span_start=top_clause.source_start,
-            source_span_end=top_clause.source_end,
-            quoted_text=top_clause.text[:150],
+            clause_id=top_r.clause_id,
+            source_span_start=top_r.source_start,
+            source_span_end=top_r.source_end,
+            quoted_text=top_r.text[:150],
         )
         return GroundedAnswerBatch(
             answer=summary,

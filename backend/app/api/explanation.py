@@ -90,3 +90,21 @@ def get_clause_explanation(
             detail=f"Explanation for clause '{clause_id}' not found",
         )
     return expl
+
+
+@router.get(
+    "/documents/{document_id}/summary",
+    status_code=status.HTTP_200_OK,
+)
+def get_document_summary(
+    document_id: str,
+    db: Session = Depends(get_db),
+):
+    try:
+        service = ExplanationService(db=db)
+        return service.get_document_summary(document_id=document_id)
+    except DocumentNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except ExplanationServiceError as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
+
