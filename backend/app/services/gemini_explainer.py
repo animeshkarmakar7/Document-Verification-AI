@@ -30,14 +30,21 @@ class ClauseExplanationBatchOutput(BaseModel):
     explanations: list[ClauseExplanationItem]
 
 
+class VerifiedSummaryItem(BaseModel):
+    statement: str
+    clause_id: str
+    source_location: str
+    verbatim_proof: str
+
+
 class DocumentSummaryOutput(BaseModel):
     title: str
     document_type: str
     executive_summary: str
-    key_points: list[str]
-    important_dates_fees: list[str]
-    user_obligations: list[str]
-    user_rights: list[str]
+    key_points: list[VerifiedSummaryItem]
+    important_dates_fees: list[VerifiedSummaryItem]
+    user_obligations: list[VerifiedSummaryItem]
+    user_rights: list[VerifiedSummaryItem]
 
 
 @dataclass
@@ -152,7 +159,7 @@ class GeminiExplainer:
                 title="Legal Document",
                 document_type="Contract",
                 executive_summary="No clause content provided for summary generation.",
-                key_points=["Document appears empty or unsegmented."],
+                key_points=[],
                 important_dates_fees=[],
                 user_obligations=[],
                 user_rights=[],
@@ -162,19 +169,23 @@ class GeminiExplainer:
             return self._summary_fallback(clauses)
 
         full_text = "\n\n".join(
-            f"[{c.clause_id} - {c.category}]: {c.text}" for c in clauses[:25]
+            f"[{c.clause_id} | span {c.source_start}-{c.source_end} | {c.category}]: {c.text}" for c in clauses[:25]
         )
         prompt = (
-            "You are a senior legal document analyst. Synthesize the provided legal document clauses into an "
-            "Executive Document Summary Report for a layperson.\n\n"
+            "You are a senior legal analyst synthesizing an Executive Document Summary Report for a user.\n"
+            "For full transparency and user verification, EVERY summary point must provide verifiable proof linking back to the exact text in the document.\n\n"
             "Provide:\n"
-            "- title: Clear title of the contract/document\n"
+            "- title: Clear title of the contract/agreement\n"
             "- document_type: e.g. Lease Agreement, Terms of Service, NDA, Employment Contract\n"
-            "- executive_summary: A 3-4 sentence high-level overview of the purpose and scope\n"
-            "- key_points: 4-6 bullet points highlighting core terms, commitments, or conditions\n"
-            "- important_dates_fees: Bullet points of any payment terms, fees, notice periods, or dates\n"
-            "- user_obligations: What the user is required to do or comply with\n"
-            "- user_rights: What protections, rights, or services the user is granted\n\n"
+            "- executive_summary: A 3-4 sentence high-level overview of the scope and main terms\n"
+            "- key_points: Array of items, each containing:\n"
+            "    * statement: Summary of the core provision\n"
+            "    * clause_id: Matching clause_id from input (e.g. doc-clause-0001)\n"
+            "    * source_location: Source span (e.g. 'chars 120-450') or page reference\n"
+            "    * verbatim_proof: Exact verbatim sentence quoted directly from the input text as evidence\n"
+            "- important_dates_fees: Array of VerifiedSummaryItem for payment terms, fees, notice periods, or dates\n"
+            "- user_obligations: Array of VerifiedSummaryItem for what the user is required to do or pay\n"
+            "- user_rights: Array of VerifiedSummaryItem for what rights, remedies, or services the user receives\n\n"
             f"Document Clauses:\n{full_text}"
         )
 
@@ -198,17 +209,43 @@ class GeminiExplainer:
     def _summary_fallback(self, clauses: list[InputClauseToExplain]) -> DocumentSummaryOutput:
         categories = list(set(c.category for c in clauses))
         total = len(clauses)
+        top = clauses[0] if clauses else None
+        
+        fallback_item = VerifiedSummaryItem(
+            statement=f"Document contains {total} segmented provisions across categories including {', '.join(categories[:3])}.",
+            clause_id=top.clause_id if top else "N/A",
+            source_location=f"chars {top.source_start}-{top.source_end}" if top else "N/A",
+            verbatim_proof=top.text[:150] if top else "No text evidence available.",
+        )
         return DocumentSummaryOutput(
             title="Legal Document Summary",
             document_type="Legal Agreement",
             executive_summary=f"This document comprises {total} clauses across key legal areas including {', '.join(categories[:4])}.",
-            key_points=[
-                f"Contains {total} segmented clauses.",
-                f"Key areas covered: {', '.join(categories[:5])}.",
-                "Review individual highlighted clauses for detailed obligation breakdowns.",
+            key_points=[fallback_item],
+            important_dates_fees=[
+                VerifiedSummaryItem(
+                    statement="Review extracted clause provisions for specific fee structures and notice periods.",
+                    clause_id=top.clause_id if top else "N/A",
+                    source_location=f"chars {top.source_start}-{top.source_end}" if top else "N/A",
+                    verbatim_proof=top.text[:120] if top else "Evidence in clause text.",
+                )
             ],
-            important_dates_fees=["Review payment terms and notice periods in the extracted clauses."],
-            user_obligations=["Comply with specified contractual provisions and fee structures."],
-            user_rights=["Standard contractual rights as outlined in the text."],
+            user_obligations=[
+                VerifiedSummaryItem(
+                    statement="Comply with specified contractual requirements as outlined in the text.",
+                    clause_id=top.clause_id if top else "N/A",
+                    source_location=f"chars {top.source_start}-{top.source_end}" if top else "N/A",
+                    verbatim_proof=top.text[:120] if top else "Evidence in clause text.",
+                )
+            ],
+            user_rights=[
+                VerifiedSummaryItem(
+                    statement="Standard contractual rights and remedies as stated in the agreement.",
+                    clause_id=top.clause_id if top else "N/A",
+                    source_location=f"chars {top.source_start}-{top.source_end}" if top else "N/A",
+                    verbatim_proof=top.text[:120] if top else "Evidence in clause text.",
+                )
+            ],
         )
+
 

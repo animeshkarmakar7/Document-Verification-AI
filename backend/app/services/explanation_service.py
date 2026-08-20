@@ -217,6 +217,17 @@ class ExplanationService:
                 )
             )
 
+        def _dump_items(items):
+            res = []
+            for item in items:
+                if hasattr(item, "model_dump"):
+                    res.append(item.model_dump())
+                elif isinstance(item, dict):
+                    res.append(item)
+                else:
+                    res.append({"statement": str(item), "clause_id": "", "source_location": "", "verbatim_proof": ""})
+            return res
+
         summary_output = self.explainer.generate_document_summary(inputs)
         return {
             "document_id": document_id,
@@ -224,10 +235,11 @@ class ExplanationService:
             "title": summary_output.title,
             "document_type": summary_output.document_type,
             "executive_summary": summary_output.executive_summary,
-            "key_points": summary_output.key_points,
-            "important_dates_fees": summary_output.important_dates_fees,
-            "user_obligations": summary_output.user_obligations,
-            "user_rights": summary_output.user_rights,
+            "key_points": _dump_items(summary_output.key_points),
+            "important_dates_fees": _dump_items(summary_output.important_dates_fees),
+            "user_obligations": _dump_items(summary_output.user_obligations),
+            "user_rights": _dump_items(summary_output.user_rights),
             "total_clauses": len(clauses),
         }
+
 
