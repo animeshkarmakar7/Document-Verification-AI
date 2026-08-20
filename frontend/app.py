@@ -10,6 +10,178 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ─── Language Translations Dictionary ─────────────────────────────────────────
+TRANSLATIONS = {
+    "en": {
+        "app_title": "Contract Intelligence & Verification",
+        "app_sub": "Automated Legal Document Analysis, Executive Summaries, Contractual Risk Exposure & Interactive Clause Inquiry",
+        "pill_verify": "Document Verification",
+        "pill_summary": "Executive Summary",
+        "pill_risk": "Risk Exposure Analysis",
+        "pill_transparency": "Clause Transparency",
+        "pill_inquiry": "Interactive Inquiry",
+        "upload_label": "Upload Legal Document",
+        "btn_analyze": "Analyze Document",
+        "active_doc": "Active Document",
+        "btn_clear": "Clear Active Session",
+        "disclaimer_head": "Informational Disclaimer",
+        "disclaimer_text": "This platform provides automated contract verification analysis and does not constitute formal legal counsel.",
+        "empty_head": "No active document selected",
+        "empty_sub": "Upload a legal contract, lease, or agreement in the sidebar to initiate automated verification and risk analysis.",
+        "tab_summary": "Executive Summary & Provisions",
+        "tab_risk": "Risk Analysis & Exposure",
+        "tab_chat": "Legal Inquiry Assistant",
+        "exec_head": "Executive Document Summary",
+        "exec_overview": "Executive Overview:",
+        "core_provisions": "Core Document Provisions",
+        "critical_dates": "Critical Dates, Fees & Notice Periods",
+        "contract_obligations": "Contractual Obligations",
+        "contract_rights": "Contractual Rights & Protections",
+        "extracted_provisions": "Extracted Document Provisions",
+        "extracted_sub": "Below are all provisions extracted from your document, categorized by legal section with source boundaries and summaries.",
+        "plain_summary": "Plain Summary:",
+        "verify_proof": "Verify Proof in PDF",
+        "exact_quote": "Exact Quote from PDF:",
+        "source_ref": "Source Reference:",
+        "risk_head": "Risk Analysis & Exposure Assessment",
+        "risk_sub": "Evaluating contractual provisions for liability exposure, one-sided terms, strict exit penalties, and ambiguous obligations.",
+        "overall_risk": "Overall Risk Score",
+        "high_risk_cnt": "High Risk Provisions",
+        "med_risk_cnt": "Medium Risk Provisions",
+        "low_risk_cnt": "Low Risk Provisions",
+        "filter_risk": "Filter Risk Exposure Level",
+        "exact_clause_text": "Exact Clause Text:",
+        "risk_assessment": "Risk Assessment:",
+        "user_impact": "Potential User Impact:",
+        "mitigation_rec": "Mitigation Recommendation:",
+        "no_risks": "No contract risks identified.",
+        "chat_head": "Interactive Legal Assistant",
+        "chat_sub": "Ask specific questions regarding obligations, rights, fees, or termination conditions. All responses reference verified contract text.",
+        "cited_provisions": "Cited Contract Provisions:",
+        "suggested_questions": "Suggested Sample Inquiries:",
+        "q1": "What are the deposit refund conditions?",
+        "q2": "What are the termination notice terms?",
+        "q3": "Are there late payment penalty fees?",
+        "chat_placeholder": "Inquire about contract terms... e.g. 'What are my fee liabilities?'",
+        "status_analyzing": "Analyzing Document Verification Pipeline...",
+        "status_complete": "Analysis Complete",
+        "complete_lbl": "[Complete]",
+        "skipped_lbl": "[Skipped]",
+    },
+    "hi": {
+        "app_title": "अनुबंध इंटेलिजेंस और सत्यापन",
+        "app_sub": "स्वचालित कानूनी दस्तावेज़ विश्लेषण, कार्यकारी सारांश, अनुबंध जोखिम और इंटरएक्टिव पूछताछ",
+        "pill_verify": "दस्तावेज़ सत्यापन",
+        "pill_summary": "कार्यकारी सारांश",
+        "pill_risk": "जोखिम विश्लेषण",
+        "pill_transparency": "धारा पारदर्शिता",
+        "pill_inquiry": "इंटरएक्टिव पूछताछ",
+        "upload_label": "कानूनी दस्तावेज़ अपलोड करें",
+        "btn_analyze": "दस्तावेज़ का विश्लेषण करें",
+        "active_doc": "सक्रिय दस्तावेज़",
+        "btn_clear": "सत्र साफ़ करें",
+        "disclaimer_head": "सूचनात्मक अस्वीकरण",
+        "disclaimer_text": "यह मंच स्वचालित अनुबंध सत्यापन विश्लेषण प्रदान करता है और औपचारिक कानूनी सलाह का गठन नहीं करता है।",
+        "empty_head": "कोई सक्रिय दस्तावेज़ नहीं चुना गया",
+        "empty_sub": "स्वचालित सत्यापन और जोखिम विश्लेषण शुरू करने के लिए साइडबार में अनुबंध या समझौता अपलोड करें।",
+        "tab_summary": "कार्यकारी सारांश और प्रावधान",
+        "tab_risk": "जोखिम विश्लेषण और प्रभाव",
+        "tab_chat": "कानूनी पूछताछ सहायक",
+        "exec_head": "कार्यकारी दस्तावेज़ सारांश",
+        "exec_overview": "कार्यकारी अवलोकन:",
+        "core_provisions": "मुख्य दस्तावेज़ प्रावधान",
+        "critical_dates": "महत्वपूर्ण तिथियां, शुल्क और नोटिस अवधि",
+        "contract_obligations": "अनुबंधात्मक दायित्व",
+        "contract_rights": "अनुबंधात्मक अधिकार और सुरक्षा",
+        "extracted_provisions": "निकाले गए दस्तावेज़ प्रावधान",
+        "extracted_sub": "नीचे आपके दस्तावेज़ से निकाले गए सभी प्रावधान कानूनी अनुभाग द्वारा वर्गीकृत हैं।",
+        "plain_summary": "सरल सारांश:",
+        "verify_proof": "पीडीएफ में प्रमाण सत्यापित करें",
+        "exact_quote": "पीडीएफ से सटीक उद्धरण:",
+        "source_ref": "स्रोत संदर्भ:",
+        "risk_head": "जोखिम विश्लेषण और प्रभाव मूल्यांकन",
+        "risk_sub": "दायित्व, एकतरफा शर्तों, सख्त निकास दंड और अस्पष्ट दायित्वों के लिए संविदात्मक प्रावधानों का मूल्यांकन।",
+        "overall_risk": "कुल जोखिम स्कोर",
+        "high_risk_cnt": "उच्च जोखिम प्रावधान",
+        "med_risk_cnt": "मध्यम जोखिम प्रावधान",
+        "low_risk_cnt": "कम जोखिम प्रावधान",
+        "filter_risk": "जोखिम स्तर फ़िल्टर करें",
+        "exact_clause_text": "सटीक धारा पाठ:",
+        "risk_assessment": "जोखिम मूल्यांकन:",
+        "user_impact": "संभावित उपयोगकर्ता प्रभाव:",
+        "mitigation_rec": "शमन सिफारिश:",
+        "no_risks": "कोई अनुबंध जोखिम नहीं पाया गया।",
+        "chat_head": "इंटरएक्टिव कानूनी सहायक",
+        "chat_sub": "दायित्वों, अधिकारों, शुल्कों या समाप्ति की शर्तों के बारे में प्रश्न पूछें।",
+        "cited_provisions": "उद्धृत अनुबंध प्रावधान:",
+        "suggested_questions": "सुझाए गए प्रश्न:",
+        "q1": "जमानत वापसी की शर्तें क्या हैं?",
+        "q2": "समाप्ति नोटिस की शर्तें क्या हैं?",
+        "q3": "क्या देर से भुगतान का जुर्माना है?",
+        "chat_placeholder": "अनुबंध की शर्तों के बारे में पूछें...",
+        "status_analyzing": "दस्तावेज़ विश्लेषण पाइपलाइन चल रही है...",
+        "status_complete": "विश्लेषण पूरा हुआ",
+        "complete_lbl": "[पूर्ण]",
+        "skipped_lbl": "[छोड़ा गया]",
+    },
+    "mr": {
+        "app_title": "करार बुद्धिमत्ता आणि पडताळणी",
+        "app_sub": "स्वयंचलित कायदेशीर दस्तऐवज विश्लेषण, कार्यकारी सारांश, करारातील धोके आणि परस्परसंवादी चौकशी",
+        "pill_verify": "दस्तऐवज पडताळणी",
+        "pill_summary": "कार्यकारी सारांश",
+        "pill_risk": "धोका विश्लेषण",
+        "pill_transparency": "कलम पारदर्शकता",
+        "pill_inquiry": "परस्परसंवादी चौकशी",
+        "upload_label": "कायदेशीर दस्तऐवज अपलोड करा",
+        "btn_analyze": "दस्तऐवजाचे विश्लेषण करा",
+        "active_doc": "सक्रिय दस्तऐवज",
+        "btn_clear": "सत्र साफ करा",
+        "disclaimer_head": "माहितीपूर्ण अस्वीकरण",
+        "disclaimer_text": "हे व्यासपीठ स्वयंचलित करार पडताळणी विश्लेषण प्रदान करते आणि औपचारिक कायदेशीर सल्ला देत नाही.",
+        "empty_head": "कोणताही दस्तऐवज निवडलेला नाही",
+        "empty_sub": "स्वयंचलित पडताळणी आणि धोका विश्लेषण सुरू करण्यासाठी साइडबारमध्ये करार किंवा करारपत्र अपलोड करा.",
+        "tab_summary": "कार्यकारी सारांश आणि तरतुदी",
+        "tab_risk": "धोका विश्लेषण आणि प्रभाव",
+        "tab_chat": "कायदेशीर चौकशी सहाय्यक",
+        "exec_head": "कार्यकारी दस्तऐवज सारांश",
+        "exec_overview": "कार्यकारी आढावा:",
+        "core_provisions": "मुख्य दस्तऐवज तरतुदी",
+        "critical_dates": "महत्त्वाच्या तारखा, शुल्क आणि नोटीस कालावधी",
+        "contract_obligations": "करारातील जबाबदाऱ्या",
+        "contract_rights": "करारातील हक्क आणि संरक्षण",
+        "extracted_provisions": "काढलेल्या दस्तऐवजाच्या तरतुदी",
+        "extracted_sub": "खाली तुमच्या दस्तऐवजातून काढलेल्या सर्व तरतुदी कायदेशीर विभागांनुसार वर्गीकृत केल्या आहेत.",
+        "plain_summary": "सोपा सारांश:",
+        "verify_proof": "पीडीएफमध्ये पुरावा पडताळा",
+        "exact_quote": "पीडीएफमधील अचूक अवतरण:",
+        "source_ref": "स्रोत संदर्भ:",
+        "risk_head": "धोका विश्लेषण आणि प्रभाव मूल्यमापन",
+        "risk_sub": "जबाबदारी, एकतर्फी अटी, कठोर दंड आणि अस्पष्ट जबाबदाऱ्यांसाठी करारातील तरतुदींचे मूल्यमापन.",
+        "overall_risk": "एकूण धोका गुण",
+        "high_risk_cnt": "उच्च धोका तरतुदी",
+        "med_risk_cnt": "मध्यम धोका तरतुदी",
+        "low_risk_cnt": "कमी धोका तरतुदी",
+        "filter_risk": "धोका पातळी फिल्टर करा",
+        "exact_clause_text": "अचूक कलम मजकूर:",
+        "risk_assessment": "धोका मूल्यमापन:",
+        "user_impact": "संभाव्य वापरकर्ता प्रभाव:",
+        "mitigation_rec": "उपाययोजना शिफारस:",
+        "no_risks": "कोणतेही करारातील धोके आढळले नाहीत.",
+        "chat_head": "परस्परसंवादी कायदेशीर सहाय्यक",
+        "chat_sub": "जबाबदाऱ्या, हक्क, शुल्क किंवा समाप्तीच्या अटींबद्दल प्रश्न विचारा.",
+        "cited_provisions": "उधृत केलेल्या कराराच्या तरतुदी:",
+        "suggested_questions": "सुचवलेले प्रश्न:",
+        "q1": "ठेव परताव्याच्या अटी काय आहेत?",
+        "q2": "समाप्ती नोटीसच्या अटी काय आहेत?",
+        "q3": "उशिरा भरल्यास दंडात्मक शुल्क आहे का?",
+        "chat_placeholder": "कराराच्या अटींबद्दल विचारा...",
+        "status_analyzing": "दस्तऐवज विश्लेषण सुरू आहे...",
+        "status_complete": "विश्लेषण पूर्ण झाले",
+        "complete_lbl": "[पूर्ण]",
+        "skipped_lbl": "[वगळले]",
+    },
+}
+
 # ─── Global Custom CSS ────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -24,20 +196,20 @@ section[data-testid="stSidebar"] { background: #121722; border-right: 1px solid 
     font-size: 1.35rem; font-weight: 800; letter-spacing: -0.3px;
     color: #F8FAFC; margin-bottom: 0.2rem;
 }
-.sidebar-sub { font-size: 0.78rem; color: #64748B; margin-bottom: 1.5rem; }
+.sidebar-sub { font-size: 0.78rem; color: #64748B; margin-bottom: 1rem; }
 
 .hero {
     background: linear-gradient(135deg, #131A29 0%, #1A2336 50%, #0F1623 100%);
     border: 1px solid #26334D;
     border-radius: 14px;
-    padding: 2rem 2.4rem;
+    padding: 1.8rem 2.2rem;
     margin-bottom: 1.8rem;
 }
 .hero-title {
-    font-size: 2.2rem; font-weight: 800; letter-spacing: -0.5px;
+    font-size: 2.1rem; font-weight: 800; letter-spacing: -0.5px;
     color: #F8FAFC;
 }
-.hero-sub { font-size: 0.95rem; color: #94A3B8; margin-top: 0.4rem; max-width: 800px; line-height: 1.5; }
+.hero-sub { font-size: 0.92rem; color: #94A3B8; margin-top: 0.4rem; max-width: 850px; line-height: 1.5; }
 .hero-pill {
     display: inline-block; background: rgba(99,102,241,0.12);
     border: 1px solid rgba(99,102,241,0.3); border-radius: 6px;
@@ -97,6 +269,11 @@ if "document_info" not in st.session_state:
     st.session_state.document_info = None
 if "chat_display" not in st.session_state:
     st.session_state.chat_display = []
+if "lang" not in st.session_state:
+    st.session_state.lang = "en"
+
+# Active Translation Object
+T = TRANSLATIONS.get(st.session_state.lang, TRANSLATIONS["en"])
 
 
 # ─── API Helper Functions ─────────────────────────────────────────────────────
@@ -115,7 +292,7 @@ def get(path):
 def run_step(label, fn, *args, **kwargs):
     try:
         result = fn(*args, **kwargs)
-        st.write(f"[Complete] {label}")
+        st.write(f"{T['complete_lbl']} {label}")
         return result
     except Exception as e:
         err = ""
@@ -127,26 +304,42 @@ def run_step(label, fn, *args, **kwargs):
                 err = str(e)
         else:
             err = str(e)
-        st.warning(f"[Skipped] {label} — {err}")
+        st.warning(f"{T['skipped_lbl']} {label} — {err}")
         return None
 
 
-# ─── Sidebar Controls ─────────────────────────────────────────────────────────
+# ─── Sidebar Controls & Language Switcher ─────────────────────────────────────
 with st.sidebar:
     st.markdown("<div class='sidebar-brand'>LegalDoc AI</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sidebar-sub'>Contract Verification Platform</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='sidebar-sub'>{T['app_title']}</div>", unsafe_allow_html=True)
+
+    # 🌐 Instant UI Language Translator Buttons
+    st.markdown("**UI Language / भाषा / भाषा नविडा**")
+    lang_cols = st.columns(3)
+    with lang_cols[0]:
+        if st.button("English", type="primary" if st.session_state.lang == "en" else "secondary", use_container_width=True):
+            st.session_state.lang = "en"
+            st.rerun()
+    with lang_cols[1]:
+        if st.button("हिंदी", type="primary" if st.session_state.lang == "hi" else "secondary", use_container_width=True):
+            st.session_state.lang = "hi"
+            st.rerun()
+    with lang_cols[2]:
+        if st.button("मराठी", type="primary" if st.session_state.lang == "mr" else "secondary", use_container_width=True):
+            st.session_state.lang = "mr"
+            st.rerun()
 
     st.markdown("---")
-    st.markdown("**Upload Document**")
+    st.markdown(f"**{T['upload_label']}**")
     uploaded_file = st.file_uploader(
-        "Drag and drop or browse",
+        "Upload file",
         type=["pdf", "png", "jpg", "jpeg"],
         label_visibility="collapsed",
         help="Upload a contract, lease, agreement, or terms document.",
     )
 
-    if uploaded_file and st.button("Analyze Document", type="primary", use_container_width=True):
-        with st.status("Analyzing Document Verification Pipeline...", expanded=True) as status_box:
+    if uploaded_file and st.button(T["btn_analyze"], type="primary", use_container_width=True):
+        with st.status(T["status_analyzing"], expanded=True) as status_box:
             files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
 
             doc_data = run_step("Document Upload", post, "documents/upload", files=files)
@@ -165,17 +358,17 @@ with st.sidebar:
             run_step("Risk Assessment & Evaluation", post, f"documents/{doc_id}/score-risk")
             run_step("Summary & Plain Language Analysis", post, f"documents/{doc_id}/explain")
 
-            status_box.update(label="Analysis Complete", state="complete", expanded=False)
+            status_box.update(label=T["status_complete"], state="complete", expanded=False)
             st.rerun()
 
     if st.session_state.document_id:
         st.markdown("---")
-        st.markdown("**Active Document**")
+        st.markdown(f"**{T['active_doc']}**")
         info = st.session_state.document_info or {}
         filename = info.get("original_filename", "Document")
         st.markdown(f"`{filename}`")
         st.code(st.session_state.document_id[:12] + "...", language="text")
-        if st.button("Clear Active Session", use_container_width=True):
+        if st.button(T["btn_clear"], use_container_width=True):
             st.session_state.document_id = None
             st.session_state.document_info = None
             st.session_state.chat_display = []
@@ -183,36 +376,36 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown(
-        "<div style='font-size:0.73rem; color:#475569; line-height:1.5;'>"
-        "<strong>Informational Disclaimer</strong><br>"
-        "This platform provides automated contract verification analysis and does not constitute formal legal counsel."
-        "</div>",
+        f"<div style='font-size:0.73rem; color:#475569; line-height:1.5;'>"
+        f"<strong>{T['disclaimer_head']}</strong><br>"
+        f"{T['disclaimer_text']}"
+        f"</div>",
         unsafe_allow_html=True,
     )
 
 
 # ─── Hero Header ──────────────────────────────────────────────────────────────
-st.markdown("""
+st.markdown(f"""
 <div class='hero'>
-  <div class='hero-title'>Contract Intelligence & Verification</div>
-  <div class='hero-sub'>Automated Legal Document Analysis, Executive Summaries, Contractual Risk Exposure & Interactive Clause Inquiry</div>
-  <span class='hero-pill'>Document Verification</span>
-  <span class='hero-pill'>Executive Summary</span>
-  <span class='hero-pill'>Risk Exposure Analysis</span>
-  <span class='hero-pill'>Clause Transparency</span>
-  <span class='hero-pill'>Interactive Inquiry</span>
+  <div class='hero-title'>{T['app_title']}</div>
+  <div class='hero-sub'>{T['app_sub']}</div>
+  <span class='hero-pill'>{T['pill_verify']}</span>
+  <span class='hero-pill'>{T['pill_summary']}</span>
+  <span class='hero-pill'>{T['pill_risk']}</span>
+  <span class='hero-pill'>{T['pill_transparency']}</span>
+  <span class='hero-pill'>{T['pill_inquiry']}</span>
 </div>
 """, unsafe_allow_html=True)
 
 # ─── Empty Document State Guard ────────────────────────────────────────────────
 if not st.session_state.document_id:
-    st.markdown("""
+    st.markdown(f"""
     <div class='empty-state'>
         <div style='font-size: 1.1rem; font-weight: 600; color: #94A3B8; margin-bottom: 0.5rem;'>
-            No active document selected
+            {T['empty_head']}
         </div>
         <div style='color: #475569;'>
-            Upload a legal contract, lease, or agreement in the sidebar to initiate automated verification and risk analysis.
+            {T['empty_sub']}
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -222,9 +415,9 @@ doc_id = st.session_state.document_id
 
 # ─── Main Content Tabs ────────────────────────────────────────────────────────
 tab_summary, tab_risk, tab_chat = st.tabs([
-    "Executive Summary & Provisions",
-    "Risk Analysis & Exposure",
-    "Legal Inquiry Assistant",
+    T["tab_summary"],
+    T["tab_risk"],
+    T["tab_chat"],
 ])
 
 
@@ -232,7 +425,7 @@ tab_summary, tab_risk, tab_chat = st.tabs([
 # TAB 1 — EXECUTIVE SUMMARY & DOCUMENT CLAUSES
 # ==============================================================================
 with tab_summary:
-    st.markdown("<div class='section-head'>Executive Document Summary</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='section-head'>{T['exec_head']}</div>", unsafe_allow_html=True)
 
     # 1. Fetch Executive Document Summary
     try:
@@ -243,7 +436,7 @@ with tab_summary:
             <div class='summary-title'>{html.escape(doc_summary.get('title', 'Contract Summary'))}</div>
             <div class='summary-type'>Type: {html.escape(doc_summary.get('document_type', 'Legal Agreement'))} &nbsp;·&nbsp; Total Clauses: {doc_summary.get('total_clauses', 0)}</div>
             <div class='summary-exec'>
-                <strong>Executive Overview:</strong><br>
+                <strong>{T['exec_overview']}</strong><br>
                 {html.escape(doc_summary.get('executive_summary', 'No summary available.'))}
             </div>
         </div>
@@ -264,44 +457,43 @@ with tab_summary:
 
                     st.markdown(f"- **{html.escape(stmt)}**")
                     if proof or c_id or loc:
-                        ref_label = f"Verify Proof in PDF ({c_id})" if c_id else "Verify Proof in PDF"
+                        ref_label = f"{T['verify_proof']} ({c_id})" if c_id else T["verify_proof"]
                         with st.expander(ref_label, expanded=False):
                             if loc or c_id:
-                                st.caption(f"Source Reference: {html.escape(c_id)} &nbsp;·&nbsp; {html.escape(loc)}")
+                                st.caption(f"{T['source_ref']} {html.escape(c_id)} &nbsp;·&nbsp; {html.escape(loc)}")
                             if proof:
                                 st.markdown(
-                                    f"<div class='verbatim-text'><strong>Exact Quote from PDF:</strong><br><i>\"{html.escape(proof)}\"</i></div>",
+                                    f"<div class='verbatim-text'><strong>{T['exact_quote']}</strong><br><i>\"{html.escape(proof)}\"</i></div>",
                                     unsafe_allow_html=True,
                                 )
                 else:
                     st.markdown(f"- {html.escape(str(item))}")
 
         with col_left:
-            st.markdown("### Core Document Provisions")
+            st.markdown(f"### {T['core_provisions']}")
             render_verified_items(doc_summary.get("key_points", []))
 
-            st.markdown("### Critical Dates, Fees & Notice Periods")
+            st.markdown(f"### {T['critical_dates']}")
             render_verified_items(doc_summary.get("important_dates_fees", []))
 
         with col_right:
-            st.markdown("### Contractual Obligations")
+            st.markdown(f"### {T['contract_obligations']}")
             render_verified_items(doc_summary.get("user_obligations", []))
 
-            st.markdown("### Contractual Rights & Protections")
+            st.markdown(f"### {T['contract_rights']}")
             render_verified_items(doc_summary.get("user_rights", []))
 
     except Exception as e:
         st.warning(f"Executive summary unavailable. Please complete document processing. ({e})")
 
-
     st.divider()
 
     # 2. Detailed Document Clauses Section
-    st.markdown("<div class='section-head'>Extracted Document Provisions</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='section-head'>{T['extracted_provisions']}</div>", unsafe_allow_html=True)
     st.markdown(
-        "<p style='color:#64748B; font-size:0.87rem;'>"
-        "Below are all provisions extracted from your document, categorized by legal section with source boundaries and summaries."
-        "</p>",
+        f"<p style='color:#64748B; font-size:0.87rem;'>"
+        f"{T['extracted_sub']}"
+        f"</p>",
         unsafe_allow_html=True,
     )
 
@@ -349,7 +541,7 @@ with tab_summary:
                         st.markdown(f"**{html.escape(c_id)}** &nbsp;•&nbsp; <span style='font-size:0.75rem; color:#64748B;'>chars {span_start}–{span_end}</span>", unsafe_allow_html=True)
                         st.markdown(f"<div class='verbatim-text'>{html.escape(raw_text)}</div>", unsafe_allow_html=True)
                         if summary:
-                            st.info(f"**Plain Summary:** {summary}")
+                            st.info(f"**{T['plain_summary']}** {summary}")
                         st.caption("---")
 
     except Exception as e:
@@ -360,11 +552,11 @@ with tab_summary:
 # TAB 2 — RISK ANALYSIS & IMPACT
 # ==============================================================================
 with tab_risk:
-    st.markdown("<div class='section-head'>Risk Analysis & Exposure Assessment</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='section-head'>{T['risk_head']}</div>", unsafe_allow_html=True)
     st.markdown(
-        "<p style='color:#64748B; font-size:0.87rem;'>"
-        "Evaluating contractual provisions for liability exposure, one-sided terms, strict exit penalties, and ambiguous obligations."
-        "</p>",
+        f"<p style='color:#64748B; font-size:0.87rem;'>"
+        f"{T['risk_sub']}"
+        f"</p>",
         unsafe_allow_html=True,
     )
 
@@ -376,10 +568,10 @@ with tab_risk:
         low_cnt = dashboard.get("low_risk_count", 0)
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Overall Risk Score", f"{overall_score} / 100")
-        c2.metric("High Risk Provisions", high_cnt)
-        c3.metric("Medium Risk Provisions", med_cnt)
-        c4.metric("Low Risk Provisions", low_cnt)
+        c1.metric(T["overall_risk"], f"{overall_score} / 100")
+        c2.metric(T["high_risk_cnt"], high_cnt)
+        c3.metric(T["med_risk_cnt"], med_cnt)
+        c4.metric(T["low_risk_cnt"], low_cnt)
 
         st.progress(min(overall_score / 100.0, 1.0))
         st.divider()
@@ -396,10 +588,10 @@ with tab_risk:
         all_risks = dashboard.get("clauses", [])
 
         if not all_risks:
-            st.success("No contract risks identified.")
+            st.success(T["no_risks"])
         else:
             filter_levels = st.multiselect(
-                "Filter Risk Exposure Level",
+                T["filter_risk"],
                 options=["HIGH", "MEDIUM", "LOW"],
                 default=["HIGH", "MEDIUM", "LOW"],
             )
@@ -438,11 +630,11 @@ with tab_risk:
                         unsafe_allow_html=True,
                     )
 
-                    st.markdown(f"<div class='verbatim-text-{r_level}'><strong>Exact Clause Text:</strong><br>{html.escape(verbatim_txt if verbatim_txt else 'Text unavailable.')}</div>", unsafe_allow_html=True)
-                    st.markdown(f"**Risk Assessment:** {html.escape(reason)}")
-                    st.markdown(f"<div class='impact-box'><strong>Potential User Impact:</strong> {html.escape(impact_text)}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='verbatim-text-{r_level}'><strong>{T['exact_clause_text']}</strong><br>{html.escape(verbatim_txt if verbatim_txt else 'Text unavailable.')}</div>", unsafe_allow_html=True)
+                    st.markdown(f"**{T['risk_assessment']}** {html.escape(reason)}")
+                    st.markdown(f"<div class='impact-box'><strong>{T['user_impact']}</strong> {html.escape(impact_text)}</div>", unsafe_allow_html=True)
                     if mitigation:
-                        st.markdown(f"<div class='mitigation-box'><strong>Mitigation Recommendation:</strong> {html.escape(mitigation)}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='mitigation-box'><strong>{T['mitigation_rec']}</strong> {html.escape(mitigation)}</div>", unsafe_allow_html=True)
                     st.caption(f"Flag Category: {flag}")
                     st.divider()
 
@@ -454,11 +646,11 @@ with tab_risk:
 # TAB 3 — GROUNDED RAG CHATBOT
 # ==============================================================================
 with tab_chat:
-    st.markdown("<div class='section-head'>Interactive Legal Assistant</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='section-head'>{T['chat_head']}</div>", unsafe_allow_html=True)
     st.markdown(
-        "<p style='color:#64748B; font-size:0.87rem;'>"
-        "Ask specific questions regarding obligations, rights, fees, or termination conditions. All responses reference verified contract text."
-        "</p>",
+        f"<p style='color:#64748B; font-size:0.87rem;'>"
+        f"{T['chat_sub']}"
+        f"</p>",
         unsafe_allow_html=True,
     )
 
@@ -479,7 +671,7 @@ with tab_chat:
         with st.chat_message(role):
             st.markdown(content)
             if citations and role == "assistant":
-                st.markdown("**Cited Contract Provisions:**")
+                st.markdown(f"**{T['cited_provisions']}**")
                 for cit in citations:
                     if isinstance(cit, dict):
                         q_txt = cit.get("quoted_text", "")
@@ -489,27 +681,27 @@ with tab_chat:
                             f"<i>\"{html.escape(q_txt[:200])}{'...' if len(q_txt) > 200 else ''}\"</i>"
                             f"</div>",
                             unsafe_allow_html=True,
-                            )
+                        )
 
     # Prompt Recommendations
     if not st.session_state.chat_display:
-        st.markdown("**Suggested Sample Inquiries:**")
+        st.markdown(f"**{T['suggested_questions']}**")
         rec_cols = st.columns(3)
         with rec_cols[0]:
-            if st.button("What are the deposit refund conditions?", use_container_width=True):
-                st.session_state._quick_q = "What are the deposit refund conditions?"
+            if st.button(T["q1"], use_container_width=True):
+                st.session_state._quick_q = T["q1"]
                 st.rerun()
         with rec_cols[1]:
-            if st.button("What are the termination notice terms?", use_container_width=True):
-                st.session_state._quick_q = "What are the termination notice terms?"
+            if st.button(T["q2"], use_container_width=True):
+                st.session_state._quick_q = T["q2"]
                 st.rerun()
         with rec_cols[2]:
-            if st.button("Are there late payment penalty fees?", use_container_width=True):
-                st.session_state._quick_q = "Are there late payment penalty fees?"
+            if st.button(T["q3"], use_container_width=True):
+                st.session_state._quick_q = T["q3"]
                 st.rerun()
 
     quick_q = st.session_state.pop("_quick_q", None)
-    user_input = st.chat_input("Inquire about contract terms... e.g. 'What are my fee liabilities?'")
+    user_input = st.chat_input(T["chat_placeholder"])
 
     query_to_run = quick_q or user_input
 
@@ -530,7 +722,7 @@ with tab_chat:
                     st.markdown(answer_text)
 
                     if citations:
-                        st.markdown("**Cited Contract Provisions:**")
+                        st.markdown(f"**{T['cited_provisions']}**")
                         for cit in citations:
                             q_txt = cit.get("quoted_text", "")
                             st.markdown(
