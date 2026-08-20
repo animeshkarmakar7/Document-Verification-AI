@@ -1,0 +1,63 @@
+services:
+  - type: web
+    name: legaldocai-backend
+    runtime: python
+    region: oregon
+    plan: free
+    rootDir: .
+    buildCommand: "pip install poetry && poetry install --only main"
+    startCommand: "poetry run uvicorn app.main:app --host 0.0.0.0 --port $PORT --app-dir backend"
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash
+      - key: GEMINI_CLASSIFICATION_BATCH_SIZE
+        value: "50"
+      - key: DATABASE_HOST
+        fromDatabase:
+          name: legaldocai-db
+          property: host
+      - key: DATABASE_PORT
+        fromDatabase:
+          name: legaldocai-db
+          property: port
+      - key: DATABASE_NAME
+        fromDatabase:
+          name: legaldocai-db
+          property: database
+      - key: DATABASE_USER
+        fromDatabase:
+          name: legaldocai-db
+          property: user
+      - key: DATABASE_PASSWORD
+        fromDatabase:
+          name: legaldocai-db
+          property: password
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "25"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: ENVIRONMENT
+        value: production
+      - key: APP_NAME
+        value: LegalDoc AI
+      - key: APP_VERSION
+        value: 1.0.0
+      - key: STORAGE_ENDPOINT
+        value: ""
+      - key: STORAGE_ACCESS_KEY
+        value: ""
+      - key: STORAGE_SECRET_KEY
+        value: ""
+      - key: STORAGE_BUCKET
+        value: legal-documents
+      - key: STORAGE_REGION
+        value: us-east-1
+
+databases:
+  - name: legaldocai-db
+    plan: free
+    region: oregon
+    databaseName: legal_ai
+    user: legaldocai_user
