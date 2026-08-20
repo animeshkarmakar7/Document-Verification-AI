@@ -2,6 +2,7 @@
 name = "legaldocai"
 version = "0.1.0"
 description = ""
+package-mode = false
 authors = [
     {name = "Animesh Karmakar",email = "animeshkarmakar992@gmail.com"}
 ]
