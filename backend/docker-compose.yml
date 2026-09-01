@@ -27,6 +27,13 @@ services:
       LOG_LEVEL: INFO
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-large-en-v1.5}
+      VECTOR_STORE_DIRECTORY: /app/.chroma_db
+      QUEUE_BACKEND: ${QUEUE_BACKEND:-redis}
+      DEDUP_CACHE_BACKEND: ${DEDUP_CACHE_BACKEND:-redis}
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+      INGESTION_QUEUE_NAME: document.ingestion
 
     ports:
       - "8000:8000"
@@ -34,6 +41,10 @@ services:
     depends_on:
       - postgres
       - minio
+      - redis
+
+    volumes:
+      - chroma_data:/app/.chroma_db
 
 
   postgres:
@@ -76,8 +87,26 @@ services:
       - minio_data:/data
 
 
+  redis:
+    image: redis:7-alpine
+
+    container_name: legal-redis
+
+    restart: unless-stopped
+
+    ports:
+      - "6379:6379"
+
+    volumes:
+      - redis_data:/data
+
+
 volumes:
 
   postgres_data:
 
   minio_data:
+
+  redis_data:
+
+  chroma_data:

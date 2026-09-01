@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     STORAGE_SECRET_KEY: str = "change-this-password"
     STORAGE_BUCKET: str = "legal-documents"
     STORAGE_REGION: str = "us-east-1"
+    PRESIGNED_UPLOAD_EXPIRY_SECONDS: int = 900
 
     MAX_UPLOAD_SIZE_MB: int = 50
     LOG_LEVEL: str = "INFO"
@@ -28,6 +29,15 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.6-flash"
     GEMINI_CLASSIFICATION_BATCH_SIZE: int = 100
+
+    EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
+    VECTOR_STORE_DIRECTORY: str = ".chroma_db"
+
+    QUEUE_BACKEND: str = "memory"
+    DEDUP_CACHE_BACKEND: str = "memory"
+    REDIS_URL: str = "redis://localhost:6379/0"
+    RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
+    INGESTION_QUEUE_NAME: str = "document.ingestion"
 
     model_config = SettingsConfigDict(
         env_file=(

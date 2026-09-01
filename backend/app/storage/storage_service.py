@@ -1,11 +1,20 @@
-import boto3
 from app.config.settings import settings
-from botocore.exceptions import ClientError
+
+try:
+    from botocore.exceptions import ClientError
+except ImportError:
+    ClientError = Exception
 
 
 class StorageService:
 
     def __init__(self):
+        try:
+            import boto3
+        except ImportError as exc:
+            raise RuntimeError(
+                "boto3 is required for S3/MinIO storage operations."
+            ) from exc
 
         self.client = boto3.client(
             "s3",
@@ -67,6 +76,24 @@ class StorageService:
 
         return (
             f"s3://{self.bucket}/{object_key}"
+        )
+
+    def create_presigned_put_url(
+        self,
+        object_key: str,
+        content_type: str,
+        expires_in: int | None = None,
+    ) -> str:
+
+        return self.client.generate_presigned_url(
+            ClientMethod="put_object",
+            Params={
+                "Bucket": self.bucket,
+                "Key": object_key,
+                "ContentType": content_type,
+            },
+            ExpiresIn=expires_in or settings.PRESIGNED_UPLOAD_EXPIRY_SECONDS,
+            HttpMethod="PUT",
         )
 
     def download_file(
