@@ -16,11 +16,12 @@ class Settings(BaseSettings):
     DATABASE_USER: str = "postgres"
     DATABASE_PASSWORD: str = "postgres"
 
-    STORAGE_ENDPOINT: str = "http://localhost:9000"
+    STORAGE_ENDPOINT: str = ""
     STORAGE_ACCESS_KEY: str = "legal_admin"
     STORAGE_SECRET_KEY: str = "change-this-password"
     STORAGE_BUCKET: str = "legal-documents"
     STORAGE_REGION: str = "us-east-1"
+    LOCAL_STORAGE_DIR: str = "local_storage"
     PRESIGNED_UPLOAD_EXPIRY_SECONDS: int = 900
 
     MAX_UPLOAD_SIZE_MB: int = 50

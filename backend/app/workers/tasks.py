@@ -27,6 +27,8 @@ def process_page_shard(self, document_id: str, shard_index: int) -> dict:
         if shard is None:
             raise ValueError(f"Shard {shard_index} not found for document '{document_id}'")
 
+        job = ingestion_repo.get_job_by_document_id(document_id)
+
         shard.status = "processing"
         db.commit()
 
@@ -39,7 +41,8 @@ def process_page_shard(self, document_id: str, shard_index: int) -> dict:
         indexed_count = VectorStoreService().index_extracted_chunks(chunks)
 
         shard.status = "completed"
-        job = ingestion_repo.get_job_by_document_id(document_id)
+        if job is None:
+            job = ingestion_repo.get_job_by_document_id(document_id)
         if job is not None:
             job.completed_shards = ingestion_repo.count_shards_by_status(job.id, "completed")
             if job.completed_shards >= job.total_shards:

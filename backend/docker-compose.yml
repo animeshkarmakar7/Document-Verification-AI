@@ -142,7 +142,7 @@ services:
 
 
   kafka:
-    image: bitnami/kafka:3.7
+    image: bitnamilegacy/kafka:3.7.0
     container_name: legal-kafka
     restart: unless-stopped
     environment:
