@@ -331,6 +331,37 @@ class VectorStoreService:
 
         return len(deduped_chunks)
 
+    def index_extracted_chunks(self, chunks: list[Any]) -> int:
+        deduped_chunks = []
+        for chunk in chunks:
+            if self.dedup_cache.seen_or_mark(chunk.chunk_hash):
+                continue
+            deduped_chunks.append(chunk)
+
+        if not deduped_chunks:
+            return 0
+
+        ids = [chunk.chunk_id for chunk in deduped_chunks]
+        texts = [chunk.text for chunk in deduped_chunks]
+        metadatas = [chunk.metadata for chunk in deduped_chunks]
+
+        if self.collection:
+            try:
+                embeddings = None
+                encoder = self._get_encoder()
+                if encoder:
+                    embeddings = encoder.encode(texts, show_progress_bar=False).tolist()
+
+                if embeddings:
+                    self.collection.upsert(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas)
+                else:
+                    self.collection.upsert(ids=ids, documents=texts, metadatas=metadatas)
+            except Exception as e:
+                logger.error(f"Failed to upsert extracted chunks into ChromaDB: {e}")
+                raise
+
+        return len(deduped_chunks)
+
     def hybrid_search(
         self, document_id: str, query: str, clauses: list[Clause], top_k: int = 3
     ) -> list[VectorSearchResult]:

@@ -2,9 +2,13 @@ from typing import Annotated
 
 from app.api.dependencies import get_db
 from app.cqrs.queries import DocumentQueryHandler, QueryNotFoundError
+from app.models.classification import ClauseClassification
 from app.schemas.chat import ChatHistoryResponse
+from app.schemas.classification import ClassificationListResponse, ClassificationResponse
 from app.schemas.clause import ClauseListResponse, ClauseResponse
+from app.schemas.explanation import ClauseExplanationResponse
 from app.schemas.ingestion import DocumentStatusResponse
+from app.schemas.risk import RiskDashboardResponse
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -123,6 +127,82 @@ def get_chat_history_query(
 
 
 @router.get(
+    "/documents/{document_id}/classifications",
+    response_model=ClassificationListResponse,
+    status_code=status.HTTP_200_OK,
+)
+def list_classifications_query(
+    document_id: str,
+    db: Annotated[Session, Depends(get_db)],
+):
+    handler = DocumentQueryHandler(db=db)
+
+    try:
+        classifications = handler.list_classifications(document_id)
+    except QueryNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return ClassificationListResponse(
+        document_id=document_id,
+        total=len(classifications),
+        classifications=[
+            _classification_response(classification)
+            for classification in classifications
+        ],
+    )
+
+
+@router.get(
+    "/documents/{document_id}/risk-dashboard",
+    response_model=RiskDashboardResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_risk_dashboard_query(
+    document_id: str,
+    db: Annotated[Session, Depends(get_db)],
+):
+    handler = DocumentQueryHandler(db=db)
+
+    try:
+        return handler.get_risk_dashboard(document_id)
+    except QueryNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/documents/{document_id}/explanations",
+    response_model=list[ClauseExplanationResponse],
+    status_code=status.HTTP_200_OK,
+)
+def list_explanations_query(
+    document_id: str,
+    db: Annotated[Session, Depends(get_db)],
+):
+    handler = DocumentQueryHandler(db=db)
+
+    try:
+        return handler.list_explanations(document_id)
+    except QueryNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/documents/{document_id}/summary",
+    status_code=status.HTTP_200_OK,
+)
+def get_document_summary_query(
+    document_id: str,
+    db: Annotated[Session, Depends(get_db)],
+):
+    handler = DocumentQueryHandler(db=db)
+
+    try:
+        return handler.get_document_summary(document_id)
+    except QueryNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
     "/documents/{document_id}/search",
     response_model=DocumentSearchResponse,
     status_code=status.HTTP_200_OK,
@@ -144,4 +224,17 @@ def search_document_query(
         document_id=document_id,
         query=query,
         results=[SearchResultResponse(**result.__dict__) for result in results],
+    )
+
+
+def _classification_response(item: ClauseClassification) -> ClassificationResponse:
+    return ClassificationResponse(
+        clause_id=item.clause_id,
+        category=item.category,
+        source_text_span={
+            "start": item.source_start,
+            "end": item.source_end,
+        },
+        model_version=item.model_version,
+        created_at=item.created_at,
     )

@@ -46,15 +46,31 @@ class LocalOCRExtractor:
     def _extract_pdf(self, content: bytes) -> OCRExtraction:
         reader = PdfReader(BytesIO(content))
         pages = []
+        empty_page_numbers = []
 
         for index, page in enumerate(reader.pages, start=1):
             page_text = page.extract_text() or ""
+            if not page_text.strip():
+                empty_page_numbers.append(index)
             pages.append(
                 {
                     "page_number": index,
                     "text": page_text,
                 }
             )
+
+        if empty_page_numbers:
+            scanned_pages = self._extract_scanned_pdf_pages(
+                content=content,
+                page_numbers=empty_page_numbers,
+            )
+            scanned_by_page = {
+                page["page_number"]: page["text"]
+                for page in scanned_pages
+            }
+            for page in pages:
+                if not page["text"].strip():
+                    page["text"] = scanned_by_page.get(page["page_number"], "")
 
         text = "\n\n".join(page["text"] for page in pages).strip()
 
@@ -71,6 +87,39 @@ class LocalOCRExtractor:
                 "pages": pages,
             },
         )
+
+    def _extract_scanned_pdf_pages(
+        self,
+        content: bytes,
+        page_numbers: list[int],
+    ) -> list[dict]:
+        try:
+            import pypdfium2 as pdfium
+        except ImportError as exc:
+            raise OCRExtractionError(
+                "PDF contains scanned pages. Install pypdfium2 and run this "
+                "document through the GPU OCR worker."
+            ) from exc
+
+        rendered_pages = []
+        pdf = pdfium.PdfDocument(content)
+
+        for start in range(0, len(page_numbers), settings.SCANNED_PDF_OCR_PAGE_BATCH_SIZE):
+            batch = page_numbers[start : start + settings.SCANNED_PDF_OCR_PAGE_BATCH_SIZE]
+            for page_number in batch:
+                page = pdf[page_number - 1]
+                bitmap = page.render(scale=2).to_pil()
+                buffer = BytesIO()
+                bitmap.save(buffer, format="PNG")
+                extraction = self._extract_image(buffer.getvalue(), ".png")
+                rendered_pages.append(
+                    {
+                        "page_number": page_number,
+                        "text": extraction.text,
+                    }
+                )
+
+        return rendered_pages
 
     def _extract_docx(self, content: bytes) -> OCRExtraction:
         namespace = {

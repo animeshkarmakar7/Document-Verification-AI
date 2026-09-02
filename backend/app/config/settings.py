@@ -33,11 +33,17 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
     VECTOR_STORE_DIRECTORY: str = ".chroma_db"
 
-    QUEUE_BACKEND: str = "memory"
     DEDUP_CACHE_BACKEND: str = "memory"
     REDIS_URL: str = "redis://localhost:6379/0"
-    RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
-    INGESTION_QUEUE_NAME: str = "document.ingestion"
+    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
+    KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
+    KAFKA_DOCUMENT_INGEST_TOPIC: str = "doc.ingest.requested"
+    KAFKA_PAGE_SHARDS_TOPIC: str = "pdf.page.shards"
+    KAFKA_DLQ_TOPIC: str = "pdf.page.shards.dlq"
+    PDF_TEXT_PAGE_BATCH_SIZE: int = 25
+    SCANNED_PDF_OCR_PAGE_BATCH_SIZE: int = 5
+    PDF_SHARD_SIZE_PAGES: int = 50
 
     model_config = SettingsConfigDict(
         env_file=(

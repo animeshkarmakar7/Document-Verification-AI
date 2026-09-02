@@ -108,6 +108,19 @@ class StorageService:
 
         return response["Body"].read()
 
+    def download_file_to_path(
+        self,
+        object_key: str,
+        destination_path: str,
+    ) -> None:
+
+        with open(destination_path, "wb") as handle:
+            self.client.download_fileobj(
+                self.bucket,
+                object_key,
+                handle,
+            )
+
     def delete_file(
         self,
         object_key: str,

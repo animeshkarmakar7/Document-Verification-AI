@@ -4,12 +4,9 @@ services:
     build:
       context: ..
       dockerfile: backend/Dockerfile
-
     container_name: legal-backend
-
     restart: unless-stopped
-
-    environment:
+    environment: &app-env
       APP_NAME: Legal Document Intelligence
       APP_VERSION: 1.0.0
       ENVIRONMENT: development
@@ -29,76 +26,139 @@ services:
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-large-en-v1.5}
       VECTOR_STORE_DIRECTORY: /app/.chroma_db
-      QUEUE_BACKEND: ${QUEUE_BACKEND:-redis}
-      DEDUP_CACHE_BACKEND: ${DEDUP_CACHE_BACKEND:-redis}
+      DEDUP_CACHE_BACKEND: redis
       REDIS_URL: redis://redis:6379/0
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-      INGESTION_QUEUE_NAME: document.ingestion
-
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_DOCUMENT_INGEST_TOPIC: doc.ingest.requested
+      KAFKA_PAGE_SHARDS_TOPIC: pdf.page.shards
+      KAFKA_DLQ_TOPIC: pdf.page.shards.dlq
+      PDF_SHARD_SIZE_PAGES: 50
+      PDF_TEXT_PAGE_BATCH_SIZE: 25
+      SCANNED_PDF_OCR_PAGE_BATCH_SIZE: 5
     ports:
       - "8000:8000"
-
     depends_on:
       - postgres
       - minio
       - redis
+      - kafka
+    volumes:
+      - chroma_data:/app/.chroma_db
 
+
+  ingestion-service:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    container_name: legal-ingestion-service
+    restart: unless-stopped
+    command: python -m app.workers.kafka_ingestion_consumer
+    environment:
+      <<: *app-env
+    depends_on:
+      - postgres
+      - minio
+      - redis
+      - kafka
+    volumes:
+      - chroma_data:/app/.chroma_db
+
+
+  celery-worker-cpu:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    container_name: legal-celery-worker-cpu
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app.celery_app worker --loglevel=INFO --queues=celery,cpu --concurrency=4
+    environment:
+      <<: *app-env
+    depends_on:
+      - postgres
+      - minio
+      - redis
+      - kafka
+    volumes:
+      - chroma_data:/app/.chroma_db
+
+
+  celery-worker-gpu:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    container_name: legal-celery-worker-gpu
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app.celery_app worker --loglevel=INFO --queues=gpu --concurrency=1
+    environment:
+      <<: *app-env
+    depends_on:
+      - postgres
+      - minio
+      - redis
+      - kafka
     volumes:
       - chroma_data:/app/.chroma_db
 
 
   postgres:
     image: postgres:16
-
     container_name: legal-postgres
-
     restart: unless-stopped
-
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: legal_ai
-
     ports:
       - "5432:5432"
-
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
 
   minio:
     image: minio/minio:latest
-
     container_name: legal-minio
-
     restart: unless-stopped
-
     command: server /data --console-address ":9001"
-
     environment:
       MINIO_ROOT_USER: legal_admin
       MINIO_ROOT_PASSWORD: change-this-password
-
     ports:
       - "9000:9000"
       - "9001:9001"
-
     volumes:
       - minio_data:/data
 
 
   redis:
     image: redis:7-alpine
-
     container_name: legal-redis
-
     restart: unless-stopped
-
     ports:
       - "6379:6379"
-
     volumes:
       - redis_data:/data
+
+
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: legal-kafka
+    restart: unless-stopped
+    environment:
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/bitnami/kafka
 
 
 volumes:
@@ -108,5 +168,7 @@ volumes:
   minio_data:
 
   redis_data:
+
+  kafka_data:
 
   chroma_data:

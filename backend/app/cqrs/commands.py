@@ -3,9 +3,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config.settings import settings
+from app.models.ingestion import IngestionJob, OutboxEvent
 from app.models.document import Document
 from app.models.enums import DocumentStatus
 from app.repositories.document_repository import DocumentRepository
+from app.repositories.ingestion_repository import IngestionRepository
+from app.services.classification_service import ClauseClassificationService
+from app.services.clause_service import ClauseSegmentationService
+from app.services.explanation_service import ExplanationService
 from app.schemas.ingestion import (
     CompleteDirectUploadRequest,
     IngestionQueuedResponse,
@@ -13,7 +18,9 @@ from app.schemas.ingestion import (
     PresignedUploadResponse,
 )
 from app.services.ocr_service import OCRService
-from app.services.queue_service import IngestionJobPayload, QueuePublisher
+from app.services.kafka_service import IngestionJobPayload, KafkaEventPublisher
+from app.services.rag_service import RAGService
+from app.services.risk_service import RiskService
 from app.services.upload_service import UploadService
 from app.services.validation_service import EXTENSION_MIME_TYPES, SUPPORTED_EXTENSIONS
 from app.storage.storage_service import StorageService
@@ -30,12 +37,13 @@ class DocumentCommandHandler:
         self,
         db: Session,
         storage_service: StorageService | None = None,
-        queue_publisher: QueuePublisher | None = None,
+        event_publisher: KafkaEventPublisher | None = None,
     ):
         self.db = db
         self.document_repo = DocumentRepository(db)
+        self.ingestion_repo = IngestionRepository(db)
         self._storage_service = storage_service
-        self.queue_publisher = queue_publisher
+        self.event_publisher = event_publisher or KafkaEventPublisher()
 
     @property
     def storage_service(self) -> StorageService:
@@ -44,7 +52,60 @@ class DocumentCommandHandler:
         return self._storage_service
 
     async def upload_via_api(self, file: UploadFile) -> Document:
-        return await UploadService(self.db).upload(file)
+        document = await UploadService(self.db).upload(file)
+        self.enqueue_ingestion(
+            document=document,
+            processing_pool=self._default_processing_pool(document.extension),
+        )
+        return document
+
+    def _default_processing_pool(self, extension: str) -> str:
+        return "gpu" if extension.lower() in {".png", ".jpg", ".jpeg", ".webp", ".tiff"} else "cpu"
+
+    def enqueue_ingestion(
+        self,
+        document: Document,
+        processing_pool: str,
+    ) -> IngestionJob:
+        existing_job = self.ingestion_repo.get_job_by_document_id(document.id)
+        if existing_job is not None and existing_job.status in {"queued", "sharded", "processing"}:
+            return existing_job
+
+        job = self.ingestion_repo.create_job(
+            IngestionJob(
+                document_id=document.id,
+                object_key=document.object_key,
+                status="queued",
+                processing_pool=processing_pool,
+            )
+        )
+        payload = IngestionJobPayload(
+            document_id=document.id,
+            object_key=document.object_key,
+            filename=document.original_filename,
+            content_type=document.mime_type,
+            file_size=document.file_size,
+            sha256=document.sha256,
+            processing_pool=processing_pool,
+        )
+        event = self.ingestion_repo.create_outbox_event(
+            OutboxEvent(
+                topic=settings.KAFKA_DOCUMENT_INGEST_TOPIC,
+                aggregate_id=document.id,
+                event_type="DocumentIngestRequested",
+                payload={**payload.to_dict(), "job_id": job.id},
+            )
+        )
+        self.db.commit()
+
+        self.event_publisher.publish(
+            topic=settings.KAFKA_DOCUMENT_INGEST_TOPIC,
+            key=document.id,
+            payload=event.payload,
+        )
+        self.ingestion_repo.mark_outbox_published(event)
+        self.db.commit()
+        return job
 
     def create_presigned_upload(
         self,
@@ -111,30 +172,50 @@ class DocumentCommandHandler:
             self.db.commit()
             self.db.refresh(document)
 
-        payload = IngestionJobPayload(
-            document_id=document.id,
-            object_key=document.object_key,
-            filename=document.original_filename,
-            content_type=document.mime_type,
-            file_size=document.file_size,
-            sha256=document.sha256,
+        job = self.enqueue_ingestion(
+            document=document,
             processing_pool=request.processing_pool,
         )
-
-        if self.queue_publisher is not None:
-            self.queue_publisher.publish(
-                settings.INGESTION_QUEUE_NAME,
-                payload.to_dict(),
-            )
 
         return IngestionQueuedResponse(
             document_id=document.id,
             status=document.status,
             object_key=document.object_key,
-            queue_name=settings.INGESTION_QUEUE_NAME,
+            queue_name=settings.KAFKA_DOCUMENT_INGEST_TOPIC,
             processing_pool=request.processing_pool,
             queued_at=datetime.now(UTC),
         )
 
     def run_text_ingestion_now(self, document_id: str):
         return OCRService(self.db).process_document(document_id)
+
+    def segment_document(self, document_id: str, force: bool = False):
+        return ClauseSegmentationService(self.db).segment_document(
+            document_id=document_id,
+            force=force,
+        )
+
+    def classify_document(self, document_id: str, force: bool = False):
+        return ClauseClassificationService(self.db).classify_document(
+            document_id=document_id,
+            force=force,
+        )
+
+    def score_document_risk(self, document_id: str, force: bool = False):
+        return RiskService(self.db).score_document_risk(
+            document_id=document_id,
+            force=force,
+        )
+
+    def explain_document(self, document_id: str, force: bool = False):
+        return ExplanationService(self.db).explain_document(
+            document_id=document_id,
+            force=force,
+        )
+
+    def chat_with_document(self, document_id: str, query: str, top_k: int = 4):
+        return RAGService(db=self.db).chat(
+            document_id=document_id,
+            query=query,
+            top_k=top_k,
+        )

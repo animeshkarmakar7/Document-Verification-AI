@@ -2,15 +2,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
-from app.api.chat import router as chat_router
-from app.api.classification import router as classification_router
 from app.api.commands import router as commands_router
-from app.api.clauses import router as clauses_router
-from app.api.explanation import router as explanation_router
-from app.api.ocr import router as ocr_router
 from app.api.queries import router as queries_router
-from app.api.risk import router as risk_router
-from app.api.upload import router as upload_router
 from app.config.settings import settings
 from app.core.errors import http_exception_handler, unhandled_exception_handler
 from app.core.logging import configure_logging
@@ -23,6 +16,7 @@ import app.models.classification  # noqa: F401
 import app.models.clause  # noqa: F401
 import app.models.document  # noqa: F401
 import app.models.explanation  # noqa: F401
+import app.models.ingestion  # noqa: F401
 import app.models.ocr_result  # noqa: F401
 import app.models.risk  # noqa: F401
 
@@ -60,13 +54,6 @@ app = FastAPI(
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
-app.include_router(upload_router, prefix="/api/v1")
-app.include_router(ocr_router, prefix="/api/v1")
-app.include_router(clauses_router, prefix="/api/v1")
-app.include_router(classification_router, prefix="/api/v1")
-app.include_router(risk_router, prefix="/api/v1")
-app.include_router(explanation_router, prefix="/api/v1")
-app.include_router(chat_router, prefix="/api/v1")
 app.include_router(commands_router, prefix="/api/v1")
 app.include_router(queries_router, prefix="/api/v1")
 

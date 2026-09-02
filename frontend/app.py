@@ -342,7 +342,7 @@ with st.sidebar:
         with st.status(T["status_analyzing"], expanded=True) as status_box:
             files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
 
-            doc_data = run_step("Document Upload", post, "documents/upload", files=files)
+            doc_data = run_step("Document Upload", post, "commands/documents/upload", files=files)
             if doc_data is None:
                 status_box.update(label="Upload failed.", state="error", expanded=True)
                 st.stop()
@@ -352,13 +352,9 @@ with st.sidebar:
             st.session_state.document_info = doc_data
             st.session_state.chat_display = []
 
-            run_step("Text Ingestion & Normalization", post, f"documents/{doc_id}/ocr")
-            run_step("Clause Boundary Segmentation", post, f"documents/{doc_id}/clauses/segment")
-            run_step("Taxonomy Categorization", post, f"documents/{doc_id}/classify")
-            run_step("Risk Assessment & Evaluation", post, f"documents/{doc_id}/score-risk")
-            run_step("Summary & Plain Language Analysis", post, f"documents/{doc_id}/explain")
+            st.write(f"{T['complete_lbl']} Ingestion job queued")
 
-            status_box.update(label=T["status_complete"], state="complete", expanded=False)
+            status_box.update(label="Upload complete. Analysis is queued.", state="complete", expanded=False)
             st.rerun()
 
     if st.session_state.document_id:
@@ -429,7 +425,7 @@ with tab_summary:
 
     # 1. Fetch Executive Document Summary
     try:
-        doc_summary = get(f"documents/{doc_id}/summary")
+        doc_summary = get(f"queries/documents/{doc_id}/summary")
 
         st.markdown(f"""
         <div class='summary-card'>
@@ -498,22 +494,22 @@ with tab_summary:
     )
 
     try:
-        clauses_resp = get(f"documents/{doc_id}/clauses?limit=200")
-        clauses = clauses_resp.get("items", [])
+        clauses_resp = get(f"queries/documents/{doc_id}/clauses?limit=200")
+        clauses = clauses_resp.get("clauses", [])
 
         class_map = {}
         try:
-            class_data = get(f"documents/{doc_id}/classifications")
+            class_data = get(f"queries/documents/{doc_id}/classifications")
             for c in class_data.get("classifications", []):
-                class_map[c["clause_pk"]] = c.get("category", "OTHER")
+                class_map[c["clause_id"]] = c.get("category", "OTHER")
         except Exception:
             pass
 
         expl_map = {}
         try:
-            explanations = get(f"documents/{doc_id}/explanations")
+            explanations = get(f"queries/documents/{doc_id}/explanations")
             for e in explanations:
-                expl_map[e["clause_pk"]] = e
+                expl_map[e["clause_id"]] = e
         except Exception:
             pass
 
@@ -523,20 +519,20 @@ with tab_summary:
             from collections import defaultdict
             groups = defaultdict(list)
             for clause in clauses:
-                cat = class_map.get(clause["id"], "OTHER")
+                cat = class_map.get(clause["clause_id"], "OTHER")
                 groups[cat].append(clause)
 
             for cat, cat_clauses in sorted(groups.items()):
                 cat_label = cat.replace("_", " ").title()
                 with st.expander(f"{cat_label} ({len(cat_clauses)} provision{'s' if len(cat_clauses) > 1 else ''})", expanded=True):
                     for clause in cat_clauses:
-                        pk = clause["id"]
                         c_id = clause["clause_id"]
                         raw_text = clause.get("text", "").strip()
-                        expl = expl_map.get(pk, {})
+                        expl = expl_map.get(c_id, {})
                         summary = expl.get("plain_summary", "")
-                        span_start = clause.get("source_start", 0)
-                        span_end = clause.get("source_end", 0)
+                        source_span = clause.get("source_text_span", {})
+                        span_start = source_span.get("start", 0)
+                        span_end = source_span.get("end", 0)
 
                         st.markdown(f"**{html.escape(c_id)}** &nbsp;•&nbsp; <span style='font-size:0.75rem; color:#64748B;'>chars {span_start}–{span_end}</span>", unsafe_allow_html=True)
                         st.markdown(f"<div class='verbatim-text'>{html.escape(raw_text)}</div>", unsafe_allow_html=True)
@@ -561,7 +557,7 @@ with tab_risk:
     )
 
     try:
-        dashboard = get(f"documents/{doc_id}/risk-dashboard")
+        dashboard = get(f"queries/documents/{doc_id}/risk-dashboard")
         overall_score = dashboard.get("overall_risk_score", 0)
         high_cnt = dashboard.get("high_risk_count", 0)
         med_cnt = dashboard.get("medium_risk_count", 0)
@@ -579,7 +575,7 @@ with tab_risk:
         # Load clauses for verbatim text matching
         clause_text_map = {}
         try:
-            all_c = get(f"documents/{doc_id}/clauses?limit=200").get("items", [])
+            all_c = get(f"queries/documents/{doc_id}/clauses?limit=200").get("clauses", [])
             for c in all_c:
                 clause_text_map[c["clause_id"]] = c.get("text", "").strip()
         except Exception:
@@ -657,7 +653,7 @@ with tab_chat:
     # Load chat history
     if not st.session_state.chat_display:
         try:
-            history = get(f"documents/{doc_id}/chat-history")
+            history = get(f"queries/documents/{doc_id}/chat-history")
             st.session_state.chat_display = history.get("messages", [])
         except Exception:
             st.session_state.chat_display = []
@@ -713,7 +709,7 @@ with tab_chat:
             with st.spinner("Analyzing document provisions and formulating answer..."):
                 try:
                     res = post(
-                        f"documents/{doc_id}/chat",
+                        f"commands/documents/{doc_id}/chat",
                         json_payload={"query": query_to_run, "top_k": 4},
                     )
                     answer_text = res.get("answer", "")
@@ -734,7 +730,7 @@ with tab_chat:
                             )
 
                     # Refresh chat history
-                    history = get(f"documents/{doc_id}/chat-history")
+                    history = get(f"queries/documents/{doc_id}/chat-history")
                     st.session_state.chat_display = history.get("messages", [])
                     st.rerun()
 
