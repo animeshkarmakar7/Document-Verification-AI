@@ -35,14 +35,20 @@ BOUNDARY_PATTERN = re.compile(
 # Lines that look like page headers/footers inserted by the PDF extractor:
 # short lines (<= 80 chars) that appear alone between double newlines.
 _PAGE_BREAK = re.compile(r"\f")
-_LONE_SHORT_LINE = re.compile(
-    r"(?<=\n\n)([^\n]{1,80})\n\n"
-    r"(?=(?:Page\s+\d+|\d+\s+of\s+\d+|[-–—]{3,}|\Z))",
-    re.IGNORECASE,
-)
 
 # Minimum non-whitespace characters for a paragraph to be kept.
 _MIN_CONTENT_CHARS = 3
+
+# Maximum characters in a single clause before it is force-split.
+# Prevents LLM context overflow when the segmenter cannot find structural
+# boundaries (e.g., academic texts, long running prose).
+_MAX_CLAUSE_CHARS = 3000
+
+# Split paragraphs on one or more blank lines (lines containing only
+# whitespace).  This correctly handles trailing-space lines produced by
+# pypdf (`"text \n\n"`) which the previous `\S…\S` regex could not
+# match across, causing the whole document to become one giant paragraph.
+_BLANK_LINE_SEP = re.compile(r"\n[ \t]*\n")
 
 
 @dataclass(frozen=True)
@@ -79,7 +85,18 @@ class ClauseSegmenter:
         groups: list[list[Paragraph]] = []
 
         for paragraph in paragraphs:
-            if self._is_boundary(paragraph.text) or not groups:
+            current_len = (
+                sum(len(p.text) for p in groups[-1]) if groups else 0
+            )
+            # Start a new group when:
+            #   - There are no groups yet, OR
+            #   - The paragraph starts a structural boundary, OR
+            #   - The current group has grown beyond the size cap.
+            if (
+                not groups
+                or self._is_boundary(paragraph.text)
+                or current_len >= _MAX_CLAUSE_CHARS
+            ):
                 groups.append([paragraph])
             else:
                 groups[-1].append(paragraph)
@@ -98,8 +115,10 @@ class ClauseSegmenter:
     # ------------------------------------------------------------------
 
     def _clean_text(self, text: str) -> str:
-        """Remove PDF page-break artefacts before segmenting."""
-        # Strip form-feed characters
+        """Normalise line endings and remove PDF page-break artefacts."""
+        # Normalise Windows/old-Mac line endings to Unix
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        # Replace form-feed page-break characters with a blank line
         text = _PAGE_BREAK.sub("\n\n", text)
         return text
 
@@ -107,34 +126,57 @@ class ClauseSegmenter:
         self,
         text: str,
     ) -> list[Paragraph]:
+        """
+        Split the document text into paragraphs on blank-line boundaries.
 
-        paragraphs = []
+        **Why re.split instead of re.finditer?**
 
-        for match in re.finditer(
-            r"\S(?:.*?\S)?(?=\n\s*\n|\Z)", text, re.DOTALL
-        ):
-            paragraph_text = match.group(0).strip()
+        pypdf appends a trailing space to every line it extracts
+        (``"Some text \\n"``).  The previous regex ``\\S(?:.*?\\S)?`` required
+        the match to both *start* and *end* on a non-whitespace character.
+        When every line ends with ``" \\n"``, the trailing space prevents the
+        match from reaching the ``\\n\\n`` separator, so the entire document
+        was returned as a single match — one giant "paragraph" producing one
+        giant clause that overflows the LLM context.
 
-            if not paragraph_text:
+        ``re.split`` on blank lines is immune to trailing spaces: it looks
+        for the separator pattern (``\\n[ \\t]*\\n``) regardless of what
+        surrounds it.
+        """
+        paragraphs: list[Paragraph] = []
+        offset = 0
+
+        for chunk in _BLANK_LINE_SEP.split(text):
+            chunk_stripped = chunk.strip()
+
+            # Advance the running offset to find where this chunk sits in
+            # the original cleaned text.
+            chunk_start = text.find(chunk, offset)
+            if chunk_start == -1:
+                # Fallback: just keep advancing linearly.
+                chunk_start = offset
+            chunk_end = chunk_start + len(chunk)
+            offset = chunk_end
+
+            if not chunk_stripped:
                 continue
 
-            # Skip paragraphs that are effectively empty after stripping.
+            # Skip effectively-empty chunks (fewer than 3 non-whitespace chars).
             if (
-                len(paragraph_text.replace(" ", "").replace("\n", ""))
+                len(chunk_stripped.replace(" ", "").replace("\n", ""))
                 < _MIN_CONTENT_CHARS
             ):
                 continue
 
-            leading_offset = len(match.group(0)) - len(
-                match.group(0).lstrip()
-            )
-            trailing_offset = len(match.group(0).rstrip())
+            # Compute tight start/end that exclude leading/trailing whitespace.
+            leading = len(chunk) - len(chunk.lstrip())
+            trailing = len(chunk.rstrip())
 
             paragraphs.append(
                 Paragraph(
-                    text=paragraph_text,
-                    start=match.start() + leading_offset,
-                    end=match.start() + trailing_offset,
+                    text=chunk_stripped,
+                    start=chunk_start + leading,
+                    end=chunk_start + trailing,
                 )
             )
 
