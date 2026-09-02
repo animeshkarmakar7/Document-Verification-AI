@@ -82,50 +82,94 @@ class GeminiExplainer:
     def explain_batch(
         self, clauses: list[InputClauseToExplain]
     ) -> list[ClauseExplanationItem]:
+        """
+        Explain clauses in small chunks to stay within the free-tier
+        250 000 input-token-per-minute quota.
+
+        Each chunk of ``_EXPLAIN_CHUNK_SIZE`` clauses is sent as a separate
+        API call.  On a 429 (rate limit) or 503 (overload) response the call
+        is retried up to ``_MAX_RETRIES`` times with exponential back-off
+        before falling back to the rule-based summary.
+        """
+        import time
+
+        _EXPLAIN_CHUNK_SIZE = 10   # clauses per Gemini call
+        _MAX_RETRIES = 3
+        _BACKOFF_BASE = 15         # seconds (15 → 30 → 60)
+
         if not clauses:
             return []
 
         if not self.client:
             return [self._explain_fallback(c) for c in clauses]
 
-        prompt = (
-            "You are a legal document expert who writes plain-English explanations for non-lawyers.\n"
-            "For each clause below, write a 2-3 sentence plain summary that:\n"
-            "- Uses no legal jargon\n"
-            "- Explains what the clause means for the user in practical terms\n"
-            "- Is strictly grounded in the clause text (do not add facts not in the text)\n"
-            "- Sets confidence to < 0.65 and is_grounded to false if the clause is too vague to explain reliably\n\n"
-            "Return JSON with 'explanations' array matching the schema.\n\n"
-            "Clauses:\n"
-        )
-        for c in clauses:
-            prompt += f"--- Clause ID: {c.clause_id} | Category: {c.category} ---\n{c.text}\n\n"
+        results: list[ClauseExplanationItem] = []
 
-        try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=ClauseExplanationBatchOutput,
-                    temperature=0.2,
-                ),
+        # Split into chunks
+        chunks = [
+            clauses[i: i + _EXPLAIN_CHUNK_SIZE]
+            for i in range(0, len(clauses), _EXPLAIN_CHUNK_SIZE)
+        ]
+
+        for chunk_idx, chunk in enumerate(chunks):
+            prompt = (
+                "You are a legal document expert who writes plain-English explanations for non-lawyers.\n"
+                "For each clause below, write a 2-3 sentence plain summary that:\n"
+                "- Uses no legal jargon\n"
+                "- Explains what the clause means for the user in practical terms\n"
+                "- Is strictly grounded in the clause text (do not add facts not in the text)\n"
+                "- Sets confidence to < 0.65 and is_grounded to false if the clause is too vague to explain reliably\n\n"
+                "Return JSON with 'explanations' array matching the schema.\n\n"
+                "Clauses:\n"
             )
-            raw = response.text or "{}"
-            parsed = json.loads(raw)
-            batch = ClauseExplanationBatchOutput(**parsed)
+            for c in chunk:
+                prompt += f"--- Clause ID: {c.clause_id} | Category: {c.category} ---\n{c.text}\n\n"
 
-            result_map = {item.clause_id: item for item in batch.explanations}
-            results = []
-            for c in clauses:
-                if c.clause_id in result_map:
-                    results.append(result_map[c.clause_id])
-                else:
-                    results.append(self._explain_fallback(c))
-            return results
-        except Exception as e:
-            logger.warning(f"Gemini explanation failed, using fallback: {e}")
-            return [self._explain_fallback(c) for c in clauses]
+            chunk_results: list[ClauseExplanationItem] | None = None
+
+            for attempt in range(_MAX_RETRIES):
+                try:
+                    response = self.client.models.generate_content(
+                        model=self.model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=ClauseExplanationBatchOutput,
+                            temperature=0.2,
+                        ),
+                    )
+                    raw = response.text or "{}"
+                    parsed = json.loads(raw)
+                    batch = ClauseExplanationBatchOutput(**parsed)
+                    result_map = {item.clause_id: item for item in batch.explanations}
+                    chunk_results = [
+                        result_map.get(c.clause_id, self._explain_fallback(c))
+                        for c in chunk
+                    ]
+                    break  # success — stop retrying
+
+                except Exception as e:
+                    err_str = str(e)
+                    is_retryable = "429" in err_str or "503" in err_str or "RESOURCE_EXHAUSTED" in err_str or "UNAVAILABLE" in err_str
+                    if is_retryable and attempt < _MAX_RETRIES - 1:
+                        wait = _BACKOFF_BASE * (2 ** attempt)
+                        logger.warning(
+                            f"Gemini explanation chunk {chunk_idx + 1}/{len(chunks)} "
+                            f"hit rate limit (attempt {attempt + 1}/{_MAX_RETRIES}), "
+                            f"retrying in {wait}s: {e}"
+                        )
+                        time.sleep(wait)
+                    else:
+                        logger.warning(
+                            f"Gemini explanation chunk {chunk_idx + 1}/{len(chunks)} "
+                            f"failed after {attempt + 1} attempt(s), using fallback: {e}"
+                        )
+                        chunk_results = [self._explain_fallback(c) for c in chunk]
+                        break
+
+            results.extend(chunk_results or [self._explain_fallback(c) for c in chunk])
+
+        return results
 
     def _explain_fallback(self, clause: InputClauseToExplain) -> ClauseExplanationItem:
         word_count = len(clause.text.split())

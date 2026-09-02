@@ -60,6 +60,18 @@ class GeminiClassifier:
         self,
         clauses: list[dict[str, str]],
     ) -> list[ClassificationResult]:
+        """
+        Classify a batch of clauses via Gemini.
+
+        Retries up to 3 times with exponential back-off (15 s, 30 s, 60 s)
+        on 429 RESOURCE_EXHAUSTED or 503 UNAVAILABLE before raising.
+        The caller (ClauseClassificationService) handles the final failure.
+        """
+        import time
+
+        _MAX_RETRIES = 3
+        _BACKOFF_BASE = 15  # seconds
+
         if not clauses:
             return []
 
@@ -82,53 +94,74 @@ class GeminiClassifier:
             "Return a JSON object containing a 'classifications' array matching the requested schema."
         )
 
-        try:
-            config = types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                response_mime_type="application/json",
-                response_schema=ClauseClassificationBatchOutput,
-                temperature=0.0,
-            )
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            response_mime_type="application/json",
+            response_schema=ClauseClassificationBatchOutput,
+            temperature=0.0,
+        )
 
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=json.dumps(prompt_payload),
-                config=config,
-            )
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=json.dumps(prompt_payload),
+                    config=config,
+                )
 
-            if not response.text:
-                raise ClassificationError("Empty response from Gemini classification API.")
+                if not response.text:
+                    raise ClassificationError("Empty response from Gemini classification API.")
 
-            parsed_data = json.loads(response.text)
-            batch_output = ClauseClassificationBatchOutput.model_validate(parsed_data)
+                parsed_data = json.loads(response.text)
+                batch_output = ClauseClassificationBatchOutput.model_validate(parsed_data)
 
-            result_map = {
-                item.clause_id: item for item in batch_output.classifications
-            }
+                result_map = {
+                    item.clause_id: item for item in batch_output.classifications
+                }
 
-            results = []
-            for clause in clauses:
-                cid = clause["clause_id"]
-                if cid in result_map:
-                    item = result_map[cid]
-                    results.append(
-                        ClassificationResult(
-                            clause_id=cid,
-                            category=item.category,
-                            raw_response=item.model_dump(),
+                results = []
+                for clause in clauses:
+                    cid = clause["clause_id"]
+                    if cid in result_map:
+                        item = result_map[cid]
+                        results.append(
+                            ClassificationResult(
+                                clause_id=cid,
+                                category=item.category,
+                                raw_response=item.model_dump(),
+                            )
                         )
+                    else:
+                        results.append(
+                            ClassificationResult(
+                                clause_id=cid,
+                                category=ClauseCategory.OTHER,
+                                raw_response={"fallback": True, "reason": "Missing in Gemini response"},
+                            )
+                        )
+
+                return results
+
+            except Exception as exc:
+                last_exc = exc
+                err_str = str(exc)
+                is_retryable = (
+                    "429" in err_str
+                    or "503" in err_str
+                    or "RESOURCE_EXHAUSTED" in err_str
+                    or "UNAVAILABLE" in err_str
+                )
+                if is_retryable and attempt < _MAX_RETRIES - 1:
+                    wait = _BACKOFF_BASE * (2 ** attempt)
+                    logger.warning(
+                        f"Gemini classification hit rate limit "
+                        f"(attempt {attempt + 1}/{_MAX_RETRIES}), retrying in {wait}s: {exc}"
                     )
+                    time.sleep(wait)
                 else:
-                    results.append(
-                        ClassificationResult(
-                            clause_id=cid,
-                            category=ClauseCategory.OTHER,
-                            raw_response={"fallback": True, "reason": "Missing in Gemini response"},
-                        )
-                    )
+                    break
 
-            return results
+        logger.warning(f"Gemini classification failed: {last_exc}")
+        raise ClassificationError(f"Gemini API error: {last_exc}") from last_exc
 
-        except Exception as exc:
-            logger.warning(f"Gemini classification failed: {exc}")
-            raise ClassificationError(f"Gemini API error: {exc}") from exc
