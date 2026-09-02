@@ -52,6 +52,7 @@ class IngestionWorkerService:
         self,
         document_id: str,
         processing_pool: str = "cpu",
+        skip_vector_index: bool = False,
     ) -> IngestionWorkerResult:
         logger.info(
             "Document ingestion worker started",
@@ -59,6 +60,7 @@ class IngestionWorkerService:
                 "_event": "ingestion_worker_started",
                 "_document_id": document_id,
                 "_processing_pool": processing_pool,
+                "_skip_vector_index": skip_vector_index,
             },
         )
 
@@ -75,10 +77,12 @@ class IngestionWorkerService:
         OCRService(self.db).process_document(document_id)
         clauses = ClauseSegmentationService(self.db).segment_document(document_id)
 
-        indexed_count = self.vector_store.index_document_clauses(
-            document_id=document_id,
-            clauses=clauses,
-        )
+        indexed_count = 0
+        if not skip_vector_index:
+            indexed_count = self.vector_store.index_document_clauses(
+                document_id=document_id,
+                clauses=clauses,
+            )
 
         ClauseClassificationService(self.db).classify_document(document_id)
         RiskService(self.db).score_document_risk(document_id)

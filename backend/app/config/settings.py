@@ -28,11 +28,11 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-3.6-flash"
+    GEMINI_MODEL: str = "gemini-1.5-flash"
     GEMINI_CLASSIFICATION_BATCH_SIZE: int = 100
 
     EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
-    VECTOR_STORE_DIRECTORY: str = ".chroma_db"
+    VECTOR_STORE_DIRECTORY: str = str(BACKEND_DIR / ".chroma_db")
 
     DEDUP_CACHE_BACKEND: str = "memory"
     REDIS_URL: str = "redis://localhost:6379/0"

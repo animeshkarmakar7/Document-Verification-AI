@@ -52,9 +52,10 @@ class ExplanationService:
             raise DocumentNotFoundError(f"Document '{document_id}' not found")
 
         valid_statuses = {
+            DocumentStatus.CLAUSES_SEGMENTED,
+            DocumentStatus.CLASSIFIED,
             DocumentStatus.RISK_SCORED,
             DocumentStatus.EXPLAINED,
-            DocumentStatus.CLASSIFIED,
         }
         if doc.status not in valid_statuses:
             raise InvalidDocumentStatusError(

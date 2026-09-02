@@ -26,6 +26,10 @@ def iter_kafka_events(topic: str, group_id: str):
         key_deserializer=lambda value: value.decode("utf-8") if value else "",
         value_deserializer=lambda value: json.loads(value.decode("utf-8")),
         auto_offset_reset="earliest",
+        session_timeout_ms=30_000,
+        heartbeat_interval_ms=10_000,
+        max_poll_interval_ms=300_000,
+        max_poll_records=10,
     )
 
     for message in consumer:
@@ -77,7 +81,7 @@ def handle_document_ingest_requested(payload: dict[str, Any]) -> None:
                 queue=job.processing_pool,
             )
 
-    except Exception:
+    except Exception as exc:
         db.rollback()
         logger.exception(
             "Kafka ingestion event failed",
@@ -86,6 +90,14 @@ def handle_document_ingest_requested(payload: dict[str, Any]) -> None:
                 "_document_id": payload.get("document_id"),
             },
         )
+        try:
+            KafkaEventPublisher().publish_dlq(
+                key=payload.get("document_id", "unknown"),
+                original_payload=payload,
+                error_message=str(exc),
+            )
+        except Exception as dlq_err:
+            logger.error(f"Failed to publish to Kafka DLQ: {dlq_err}")
         raise
     finally:
         db.close()

@@ -342,6 +342,7 @@ with st.sidebar:
         with st.status(T["status_analyzing"], expanded=True) as status_box:
             files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
 
+            # Step 1: Upload Document & Publish to Ingestion Queue
             doc_data = run_step("Document Upload", post, "commands/documents/upload", files=files)
             if doc_data is None:
                 status_box.update(label="Upload failed.", state="error", expanded=True)
@@ -352,9 +353,27 @@ with st.sidebar:
             st.session_state.document_info = doc_data
             st.session_state.chat_display = []
 
-            st.write(f"{T['complete_lbl']} Ingestion job queued")
+            # Step 2: OCR & Text Extraction
+            run_step("OCR & Text Extraction", post, f"commands/documents/{doc_id}/ingest/text")
 
-            status_box.update(label="Upload complete. Analysis is queued.", state="complete", expanded=False)
+            # Step 3: Clause Segmentation
+            seg_data = run_step("Clause Segmentation", post, f"commands/documents/{doc_id}/clauses/segment")
+
+            # Step 4: AI Clause Classification (Gemini)
+            run_step("Clause Classification", post, f"commands/documents/{doc_id}/classify")
+
+            # Step 5: Contractual Risk Scoring
+            run_step("Risk Exposure Scoring", post, f"commands/documents/{doc_id}/score-risk")
+
+            # Step 6: Plain-English Legal Explanations (Gemini)
+            run_step("Plain-English Explanations", post, f"commands/documents/{doc_id}/explain")
+
+            clause_count = seg_data.get("clause_count", 0) if seg_data else 0
+            status_box.update(
+                label=f"{T['status_complete']} ({clause_count} clauses analyzed)",
+                state="complete",
+                expanded=False,
+            )
             st.rerun()
 
     if st.session_state.document_id:

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-SIMILARITY_THRESHOLD = 0.10
+SIMILARITY_THRESHOLD = 0.05
 
 
 class RAGServiceError(Exception):
