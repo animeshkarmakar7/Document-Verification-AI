@@ -13,6 +13,8 @@ from app.repositories.document_repository import DocumentRepository
 from app.services.vector_store_service import VectorStoreService, VectorSearchResult
 from sqlalchemy.orm import Session
 
+from app.services.llm_router import LLMRouter, LLMUnavailableError
+
 logger = logging.getLogger(__name__)
 
 SIMILARITY_THRESHOLD = 0.05
@@ -47,15 +49,27 @@ class RAGService:
         api_key: str | None = None,
         model_name: str | None = None,
         vector_store: VectorStoreService | None = None,
+        router: LLMRouter | None = None,
     ):
         self.db = db
         self.doc_repo = DocumentRepository(db)
         self.clause_repo = ClauseRepository(db)
         self.chat_repo = ChatRepository(db)
         self.vector_store = vector_store or VectorStoreService()
-        self.api_key = api_key or settings.GEMINI_API_KEY
+        self.api_key = api_key if api_key is not None else settings.GEMINI_API_KEY
         self.model_name = model_name or settings.GEMINI_MODEL
-        self.client = genai.Client(api_key=self.api_key) if self.api_key else None
+        self.router = router or LLMRouter(
+            gemini_api_key=self.api_key,
+            gemini_model=self.model_name,
+        )
+
+    @property
+    def client(self):
+        return self.router.gemini_client
+
+    @client.setter
+    def client(self, value):
+        self.router.gemini_client = value
 
     def chat(self, document_id: str, query: str, top_k: int = 4) -> dict:
         doc = self.doc_repo.get_by_id(document_id)
@@ -157,20 +171,13 @@ class RAGService:
         )
 
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=GroundedAnswerBatch,
-                    temperature=0.1,
-                ),
+            return self.router.generate_structured(
+                prompt=prompt,
+                schema=GroundedAnswerBatch,
+                temperature=0.1,
             )
-            raw = response.text or "{}"
-            parsed = json.loads(raw)
-            return GroundedAnswerBatch(**parsed)
         except Exception as e:
-            logger.warning(f"Gemini RAG call failed, using fallback: {e}")
+            logger.warning(f"RAG LLM generation failed, using fallback: {e}")
             return self._generate_fallback(query, search_results, 0.5)
 
     def _generate_fallback(

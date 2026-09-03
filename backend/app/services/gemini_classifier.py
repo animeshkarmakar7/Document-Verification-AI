@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from app.config.settings import settings
 from app.models.enums import ClauseCategory
 
+from app.services.llm_router import LLMRouter, LLMUnavailableError
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,41 +43,40 @@ class GeminiClassifier:
         self,
         api_key: str | None = None,
         model_name: str | None = None,
+        router: LLMRouter | None = None,
     ):
-        self.api_key = api_key or settings.GEMINI_API_KEY
+        self.api_key = api_key if api_key is not None else settings.GEMINI_API_KEY
         self.model_name = model_name or settings.GEMINI_MODEL
         self._client: genai.Client | None = None
+        self.router = router or LLMRouter(
+            gemini_api_key=self.api_key,
+            gemini_model=self.model_name,
+        )
 
     @property
     def client(self) -> genai.Client:
-        if self._client is None:
-            if not self.api_key:
-                raise ClassificationError(
-                    "GEMINI_API_KEY is not set in environment or settings."
-                )
-            self._client = genai.Client(api_key=self.api_key)
+        if self._client is not None:
+            return self._client
+        if not self.api_key:
+            raise ClassificationError(
+                "GEMINI_API_KEY is not set in environment or settings."
+            )
+        self._client = self.router.gemini_client
         return self._client
+
+    @client.setter
+    def client(self, value: Any) -> None:
+        self._client = value
+        self.router.gemini_client = value
 
     def classify_batch(
         self,
         clauses: list[dict[str, str]],
     ) -> list[ClassificationResult]:
-        """
-        Classify a batch of clauses via Gemini.
-
-        Retries up to 3 times with exponential back-off (15 s, 30 s, 60 s)
-        on 429 RESOURCE_EXHAUSTED or 503 UNAVAILABLE before raising.
-        The caller (ClauseClassificationService) handles the final failure.
-        """
-        import time
-
-        _MAX_RETRIES = 3
-        _BACKOFF_BASE = 15  # seconds
-
         if not clauses:
             return []
 
-        if not self.api_key:
+        if not self.api_key and not self._client and not self.router.groq_client and not self.router._check_ollama():
             raise ClassificationError("GEMINI_API_KEY is missing.")
 
         prompt_payload = [
@@ -94,74 +95,44 @@ class GeminiClassifier:
             "Return a JSON object containing a 'classifications' array matching the requested schema."
         )
 
-        config = types.GenerateContentConfig(
-            system_instruction=system_instruction,
-            response_mime_type="application/json",
-            response_schema=ClauseClassificationBatchOutput,
-            temperature=0.0,
-        )
+        if self._client is not None:
+            self.router.gemini_client = self._client
 
-        last_exc: Exception | None = None
-        for attempt in range(_MAX_RETRIES):
-            try:
-                response = self.client.models.generate_content(
-                    model=self.model_name,
-                    contents=json.dumps(prompt_payload),
-                    config=config,
-                )
+        try:
+            batch_output = self.router.generate_structured(
+                prompt=json.dumps(prompt_payload),
+                schema=ClauseClassificationBatchOutput,
+                system=system_instruction,
+                temperature=0.0,
+            )
+        except Exception as exc:
+            logger.warning(f"Classification LLM call failed: {exc}")
+            raise ClassificationError(f"Gemini API error: {exc}") from exc
 
-                if not response.text:
-                    raise ClassificationError("Empty response from Gemini classification API.")
+        result_map = {
+            item.clause_id: item for item in batch_output.classifications
+        }
 
-                parsed_data = json.loads(response.text)
-                batch_output = ClauseClassificationBatchOutput.model_validate(parsed_data)
-
-                result_map = {
-                    item.clause_id: item for item in batch_output.classifications
-                }
-
-                results = []
-                for clause in clauses:
-                    cid = clause["clause_id"]
-                    if cid in result_map:
-                        item = result_map[cid]
-                        results.append(
-                            ClassificationResult(
-                                clause_id=cid,
-                                category=item.category,
-                                raw_response=item.model_dump(),
-                            )
-                        )
-                    else:
-                        results.append(
-                            ClassificationResult(
-                                clause_id=cid,
-                                category=ClauseCategory.OTHER,
-                                raw_response={"fallback": True, "reason": "Missing in Gemini response"},
-                            )
-                        )
-
-                return results
-
-            except Exception as exc:
-                last_exc = exc
-                err_str = str(exc)
-                is_retryable = (
-                    "429" in err_str
-                    or "503" in err_str
-                    or "RESOURCE_EXHAUSTED" in err_str
-                    or "UNAVAILABLE" in err_str
-                )
-                if is_retryable and attempt < _MAX_RETRIES - 1:
-                    wait = _BACKOFF_BASE * (2 ** attempt)
-                    logger.warning(
-                        f"Gemini classification hit rate limit "
-                        f"(attempt {attempt + 1}/{_MAX_RETRIES}), retrying in {wait}s: {exc}"
+        results = []
+        for clause in clauses:
+            cid = clause["clause_id"]
+            if cid in result_map:
+                item = result_map[cid]
+                results.append(
+                    ClassificationResult(
+                        clause_id=cid,
+                        category=item.category,
+                        raw_response=item.model_dump(),
                     )
-                    time.sleep(wait)
-                else:
-                    break
+                )
+            else:
+                results.append(
+                    ClassificationResult(
+                        clause_id=cid,
+                        category=ClauseCategory.OTHER,
+                        raw_response={"fallback": True, "reason": "Missing in LLM response"},
+                    )
+                )
 
-        logger.warning(f"Gemini classification failed: {last_exc}")
-        raise ClassificationError(f"Gemini API error: {last_exc}") from last_exc
+        return results
 

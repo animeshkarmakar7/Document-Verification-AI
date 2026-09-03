@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 
 from app.config.settings import settings
 
+from app.services.llm_router import LLMRouter, LLMUnavailableError
+
 logger = logging.getLogger(__name__)
 
 CONFIDENCE_THRESHOLD = 0.65
@@ -74,10 +76,26 @@ def _count_syllables(word: str) -> int:
 
 class GeminiExplainer:
 
-    def __init__(self, api_key: str | None = None, model_name: str | None = None):
-        self.api_key = api_key or settings.GEMINI_API_KEY
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model_name: str | None = None,
+        router: LLMRouter | None = None,
+    ):
+        self.api_key = api_key if api_key is not None else settings.GEMINI_API_KEY
         self.model_name = model_name or settings.GEMINI_MODEL
-        self.client = genai.Client(api_key=self.api_key) if self.api_key else None
+        self.router = router or LLMRouter(
+            gemini_api_key=self.api_key,
+            gemini_model=self.model_name,
+        )
+
+    @property
+    def client(self):
+        return self.router.gemini_client
+
+    @client.setter
+    def client(self, value):
+        self.router.gemini_client = value
 
     def explain_batch(
         self, clauses: list[InputClauseToExplain]
@@ -125,49 +143,24 @@ class GeminiExplainer:
             for c in chunk:
                 prompt += f"--- Clause ID: {c.clause_id} | Category: {c.category} ---\n{c.text}\n\n"
 
-            chunk_results: list[ClauseExplanationItem] | None = None
+            try:
+                batch = self.router.generate_structured(
+                    prompt=prompt,
+                    schema=ClauseExplanationBatchOutput,
+                    temperature=0.2,
+                )
+                result_map = {item.clause_id: item for item in batch.explanations}
+                chunk_results = [
+                    result_map.get(c.clause_id, self._explain_fallback(c))
+                    for c in chunk
+                ]
+            except Exception as e:
+                logger.warning(
+                    f"LLM explanation chunk {chunk_idx + 1}/{len(chunks)} failed, using fallback: {e}"
+                )
+                chunk_results = [self._explain_fallback(c) for c in chunk]
 
-            for attempt in range(_MAX_RETRIES):
-                try:
-                    response = self.client.models.generate_content(
-                        model=self.model_name,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            response_schema=ClauseExplanationBatchOutput,
-                            temperature=0.2,
-                        ),
-                    )
-                    raw = response.text or "{}"
-                    parsed = json.loads(raw)
-                    batch = ClauseExplanationBatchOutput(**parsed)
-                    result_map = {item.clause_id: item for item in batch.explanations}
-                    chunk_results = [
-                        result_map.get(c.clause_id, self._explain_fallback(c))
-                        for c in chunk
-                    ]
-                    break  # success — stop retrying
-
-                except Exception as e:
-                    err_str = str(e)
-                    is_retryable = "429" in err_str or "503" in err_str or "RESOURCE_EXHAUSTED" in err_str or "UNAVAILABLE" in err_str
-                    if is_retryable and attempt < _MAX_RETRIES - 1:
-                        wait = _BACKOFF_BASE * (2 ** attempt)
-                        logger.warning(
-                            f"Gemini explanation chunk {chunk_idx + 1}/{len(chunks)} "
-                            f"hit rate limit (attempt {attempt + 1}/{_MAX_RETRIES}), "
-                            f"retrying in {wait}s: {e}"
-                        )
-                        time.sleep(wait)
-                    else:
-                        logger.warning(
-                            f"Gemini explanation chunk {chunk_idx + 1}/{len(chunks)} "
-                            f"failed after {attempt + 1} attempt(s), using fallback: {e}"
-                        )
-                        chunk_results = [self._explain_fallback(c) for c in chunk]
-                        break
-
-            results.extend(chunk_results or [self._explain_fallback(c) for c in chunk])
+            results.extend(chunk_results)
 
         return results
 
@@ -209,7 +202,7 @@ class GeminiExplainer:
                 user_rights=[],
             )
 
-        if not self.client:
+        if not self.client and not self.router.groq_client and not self.router._check_ollama():
             return self._summary_fallback(clauses)
 
         full_text = "\n\n".join(
@@ -234,20 +227,13 @@ class GeminiExplainer:
         )
 
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=DocumentSummaryOutput,
-                    temperature=0.2,
-                ),
+            return self.router.generate_structured(
+                prompt=prompt,
+                schema=DocumentSummaryOutput,
+                temperature=0.2,
             )
-            raw = response.text or "{}"
-            parsed = json.loads(raw)
-            return DocumentSummaryOutput(**parsed)
         except Exception as e:
-            logger.warning(f"Gemini document summary generation failed, using fallback: {e}")
+            logger.warning(f"LLM document summary generation failed, using fallback: {e}")
             return self._summary_fallback(clauses)
 
     def _summary_fallback(self, clauses: list[InputClauseToExplain]) -> DocumentSummaryOutput:

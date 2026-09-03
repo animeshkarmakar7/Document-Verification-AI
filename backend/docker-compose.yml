@@ -23,7 +23,10 @@ services:
       MAX_UPLOAD_SIZE_MB: 50
       LOG_LEVEL: INFO
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-1.5-flash}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
+      GEMINI_CLASSIFICATION_BATCH_SIZE: ${GEMINI_CLASSIFICATION_BATCH_SIZE:-10}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama3-8b-8192}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-BAAI/bge-large-en-v1.5}
       VECTOR_STORE_DIRECTORY: /app/.chroma_db
       DEDUP_CACHE_BACKEND: redis
@@ -142,7 +145,7 @@ services:
 
 
   kafka:
-    image: bitnamilegacy/kafka:3.7.0
+    image: bitnami/kafka:3.7.0
     container_name: legal-kafka
     restart: unless-stopped
     environment:

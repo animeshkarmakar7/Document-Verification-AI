@@ -29,7 +29,11 @@ class Settings(BaseSettings):
 
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.6-flash"
-    GEMINI_CLASSIFICATION_BATCH_SIZE: int = 100
+    GEMINI_CLASSIFICATION_BATCH_SIZE: int = 10
+
+    # Groq / LLaMA3 fallback LLM (free tier at console.groq.com)
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama3-8b-8192"
 
     EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
     VECTOR_STORE_DIRECTORY: str = str(BACKEND_DIR / ".chroma_db")

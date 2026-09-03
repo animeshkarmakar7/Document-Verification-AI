@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from app.config.settings import settings
 from app.models.enums import RiskLevel
 
+from app.services.llm_router import LLMRouter, LLMUnavailableError
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,20 +48,31 @@ class GeminiRiskScorer:
         self,
         api_key: str | None = None,
         model_name: str | None = None,
+        router: LLMRouter | None = None,
     ):
-        self.api_key = api_key or settings.GEMINI_API_KEY
+        self.api_key = api_key if api_key is not None else settings.GEMINI_API_KEY
         self.model_name = model_name or settings.GEMINI_MODEL
         self._client: genai.Client | None = None
+        self.router = router or LLMRouter(
+            gemini_api_key=self.api_key,
+            gemini_model=self.model_name,
+        )
 
     @property
     def client(self) -> genai.Client:
-        if self._client is None:
-            if not self.api_key:
-                raise RiskScoringError(
-                    "GEMINI_API_KEY is not set in environment or settings."
-                )
-            self._client = genai.Client(api_key=self.api_key)
+        if self._client is not None:
+            return self._client
+        if not self.api_key:
+            raise RiskScoringError(
+                "GEMINI_API_KEY is not set in environment or settings."
+            )
+        self._client = self.router.gemini_client
         return self._client
+
+    @client.setter
+    def client(self, value: Any) -> None:
+        self._client = value
+        self.router.gemini_client = value
 
     def score_batch(
         self,
@@ -67,6 +80,9 @@ class GeminiRiskScorer:
     ) -> list[RiskScoringResult]:
         if not clauses:
             return []
+
+        if not self.api_key and not self._client and not self.router.groq_client and not self.router._check_ollama():
+            raise RiskScoringError("GEMINI_API_KEY is missing.")
 
         prompt_payload = [
             {
@@ -88,57 +104,47 @@ class GeminiRiskScorer:
             "Return a JSON object containing a 'risk_scores' array matching requested schema."
         )
 
+        if self._client is not None:
+            self.router.gemini_client = self._client
+
         try:
-            config = types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                response_mime_type="application/json",
-                response_schema=ClauseRiskBatchOutput,
+            batch_output = self.router.generate_structured(
+                prompt=json.dumps(prompt_payload),
+                schema=ClauseRiskBatchOutput,
+                system=system_instruction,
                 temperature=0.0,
             )
-
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=json.dumps(prompt_payload),
-                config=config,
-            )
-
-            if not response.text:
-                raise RiskScoringError("Empty response from Gemini API.")
-
-            parsed_data = json.loads(response.text)
-            batch_output = ClauseRiskBatchOutput.model_validate(parsed_data)
-
-            result_map = {
-                item.clause_id: item for item in batch_output.risk_scores
-            }
-
-            results = []
-            for clause in clauses:
-                cid = clause["clause_id"]
-                if cid in result_map:
-                    item = result_map[cid]
-                    results.append(
-                        RiskScoringResult(
-                            clause_id=cid,
-                            risk_level=item.risk_level,
-                            risk_reason=item.risk_reason,
-                            similarity_score=min(max(item.similarity_score, 0.0), 1.0),
-                            raw_response=item.model_dump(),
-                        )
-                    )
-                else:
-                    results.append(
-                        RiskScoringResult(
-                            clause_id=cid,
-                            risk_level=RiskLevel.LOW,
-                            risk_reason="Standard text with low legal risk.",
-                            similarity_score=0.0,
-                            raw_response={"fallback": True},
-                        )
-                    )
-
-            return results
-
         except Exception as exc:
-            logger.exception("Gemini risk scoring failed")
+            logger.warning(f"Risk scoring LLM call failed: {exc}")
             raise RiskScoringError(f"Gemini API error: {exc}") from exc
+
+        result_map = {
+            item.clause_id: item for item in batch_output.risk_scores
+        }
+
+        results = []
+        for clause in clauses:
+            cid = clause["clause_id"]
+            if cid in result_map:
+                item = result_map[cid]
+                results.append(
+                    RiskScoringResult(
+                        clause_id=cid,
+                        risk_level=item.risk_level,
+                        risk_reason=item.risk_reason,
+                        similarity_score=min(max(item.similarity_score, 0.0), 1.0),
+                        raw_response=item.model_dump(),
+                    )
+                )
+            else:
+                results.append(
+                    RiskScoringResult(
+                        clause_id=cid,
+                        risk_level=RiskLevel.LOW,
+                        risk_reason="Standard text with low legal risk.",
+                        similarity_score=0.0,
+                        raw_response={"fallback": True},
+                    )
+                )
+
+        return results

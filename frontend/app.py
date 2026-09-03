@@ -330,6 +330,22 @@ with st.sidebar:
             st.rerun()
 
     st.markdown("---")
+    with st.expander("🤖 **AI Models & Resilience**", expanded=False):
+        st.markdown(
+            "**Primary:** `Gemini 3.6-Flash`  \n"
+            "**Failover 1:** `Gemini 3.5/3.7-Flash`  \n"
+            "**Failover 2:** `LLaMA3 (Groq/Ollama)`  \n"
+            "**Strategy:** Auto-retry with backoff on rate-limits (429/503), seamless fallback to LLaMA3."
+        )
+        groq_key_input = st.text_input(
+            "Groq API Key (Optional LLaMA3)",
+            type="password",
+            value=st.session_state.get("groq_key", ""),
+            help="Free API key from console.groq.com for LLaMA 3.3 / 3.1 fallback.",
+        )
+        if groq_key_input and groq_key_input != st.session_state.get("groq_key"):
+            st.session_state.groq_key = groq_key_input
+
     st.markdown(f"**{T['upload_label']}**")
     uploaded_file = st.file_uploader(
         "Upload file",
