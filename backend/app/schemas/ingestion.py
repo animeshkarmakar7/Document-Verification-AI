@@ -45,3 +45,15 @@ class DocumentStatusResponse(BaseModel):
     object_key: str
     created_at: datetime
     updated_at: datetime
+
+
+class PipelineStatusResponse(BaseModel):
+    document_id: str
+    status: DocumentStatus
+    stage: str
+    progress_percent: int
+    clause_count: int = 0
+    page_count: int | None = None
+    error_message: str | None = None
+    is_complete: bool = False
+    is_failed: bool = False

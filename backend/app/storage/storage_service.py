@@ -52,8 +52,15 @@ class _LocalStorageBackend:
         return f"local://{settings.STORAGE_BUCKET}/{object_key}"
 
     def create_presigned_put_url(self, object_key: str, content_type: str, expires_in: int | None = None) -> str:
-        # In local mode there is no real presigned URL — return a placeholder.
-        return f"local://presigned/{object_key}"
+        base_url = (getattr(settings, "API_BASE_URL", "") or "http://localhost:8000").rstrip("/")
+        safe_key = object_key.lstrip("/").replace("\\", "/")
+        return f"{base_url}/api/v1/commands/documents/raw-upload/{safe_key}"
+
+    def save_raw_bytes(self, raw_bytes: bytes, object_key: str) -> str:
+        dest = self._path(object_key)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(raw_bytes)
+        return f"local://{settings.STORAGE_BUCKET}/{object_key}"
 
     def download_file(self, object_key: str) -> bytes:
         return self._path(object_key).read_bytes()
@@ -169,6 +176,12 @@ class StorageService:
 
     def create_presigned_put_url(self, object_key: str, content_type: str, expires_in: int | None = None) -> str:
         return self._backend.create_presigned_put_url(object_key, content_type, expires_in)
+
+    def save_raw_bytes(self, raw_bytes: bytes, object_key: str, content_type: str = "application/pdf") -> str:
+        if isinstance(self._backend, _LocalStorageBackend):
+            return self._backend.save_raw_bytes(raw_bytes, object_key)
+        from io import BytesIO
+        return self._backend.upload_file(BytesIO(raw_bytes), object_key, content_type)
 
     def download_file(self, object_key: str) -> bytes:
         return self._backend.download_file(object_key)

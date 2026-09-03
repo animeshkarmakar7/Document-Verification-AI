@@ -35,6 +35,10 @@ env/
 *.sqlite3
 uploads/
 backend/uploads/
+local_storage/
+backend/local_storage/
+.chroma_db/
+backend/.chroma_db/
 
 # Temporary / Scratch / Diagnostic scripts
 backend/diagnose.py

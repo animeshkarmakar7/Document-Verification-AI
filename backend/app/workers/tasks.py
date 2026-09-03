@@ -145,6 +145,15 @@ def analyze_document(self, document_id: str) -> dict:
             "Document analysis task failed",
             extra={"_event": "analyze_document_failed", "_document_id": document_id},
         )
+        try:
+            doc = DocumentRepository(db).get_by_id(document_id)
+            if doc is not None:
+                doc.status = "FAILED"
+                doc.error_message = str(exc)[:500]
+                db.commit()
+        except Exception:
+            db.rollback()
+
         if getattr(self.request, "retries", 0) >= getattr(self, "max_retries", 3):
             try:
                 KafkaEventPublisher().publish_dlq(

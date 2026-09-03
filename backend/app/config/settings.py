@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     STORAGE_REGION: str = "us-east-1"
     LOCAL_STORAGE_DIR: str = "local_storage"
     PRESIGNED_UPLOAD_EXPIRY_SECONDS: int = 900
+    API_BASE_URL: str = "http://localhost:8000"
 
     MAX_UPLOAD_SIZE_MB: int = 50
     LOG_LEVEL: str = "INFO"

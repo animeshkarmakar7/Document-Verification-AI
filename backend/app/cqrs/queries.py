@@ -1,6 +1,8 @@
 from app.models.chat import ChatMessage
 from app.models.clause import Clause
 from app.models.document import Document
+from app.models.enums import DocumentStatus
+from app.models.ingestion import IngestionJob
 from app.repositories.chat_repository import ChatRepository
 from app.repositories.clause_repository import ClauseRepository
 from app.repositories.classification_repository import ClassificationRepository
@@ -81,3 +83,37 @@ class DocumentQueryHandler:
             clauses=clauses,
             top_k=top_k,
         )
+
+    def get_pipeline_status(self, document_id: str) -> dict:
+        document = self.get_document(document_id)
+        clauses = self.clause_repo.list_by_document(document_id)
+        clause_count = len(clauses)
+
+        STAGE_MAP = {
+            DocumentStatus.QUEUED: ("Queued for Ingestion", 10),
+            DocumentStatus.OCR_COMPLETE: ("OCR & Text Extracted", 30),
+            DocumentStatus.CLAUSES_SEGMENTED: ("Provisions Segmented", 50),
+            DocumentStatus.CLASSIFIED: ("Provisions Classified", 70),
+            DocumentStatus.RISK_SCORED: ("Risk Scored", 85),
+            DocumentStatus.EXPLAINED: ("Analysis Complete", 100),
+            DocumentStatus.FAILED: ("Processing Failed", 100),
+        }
+
+        stage_name, progress = STAGE_MAP.get(document.status, ("Processing", 20))
+        is_complete = document.status == DocumentStatus.EXPLAINED
+        is_failed = document.status == DocumentStatus.FAILED
+
+        job = self.db.query(IngestionJob).filter(IngestionJob.document_id == document_id).first()
+        page_count = job.page_count if job else None
+
+        return {
+            "document_id": document.id,
+            "status": document.status,
+            "stage": stage_name,
+            "progress_percent": progress,
+            "clause_count": clause_count,
+            "page_count": page_count,
+            "error_message": getattr(document, "error_message", None),
+            "is_complete": is_complete,
+            "is_failed": is_failed,
+        }

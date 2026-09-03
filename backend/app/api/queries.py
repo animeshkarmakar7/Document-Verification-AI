@@ -7,7 +7,7 @@ from app.schemas.chat import ChatHistoryResponse
 from app.schemas.classification import ClassificationListResponse, ClassificationResponse
 from app.schemas.clause import ClauseListResponse, ClauseResponse
 from app.schemas.explanation import ClauseExplanationResponse
-from app.schemas.ingestion import DocumentStatusResponse
+from app.schemas.ingestion import DocumentStatusResponse, PipelineStatusResponse
 from app.schemas.risk import RiskDashboardResponse
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -70,6 +70,23 @@ def get_document_query(
         created_at=document.created_at,
         updated_at=document.updated_at,
     )
+
+
+@router.get(
+    "/documents/{document_id}/pipeline-status",
+    response_model=PipelineStatusResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_pipeline_status_query(
+    document_id: str,
+    db: Annotated[Session, Depends(get_db)],
+):
+    handler = DocumentQueryHandler(db=db)
+
+    try:
+        return handler.get_pipeline_status(document_id)
+    except QueryNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.get(

@@ -37,7 +37,8 @@ from app.services.risk_service import (
     RiskServiceError,
 )
 from app.services.validation_service import FileValidationError
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from app.storage.storage_service import StorageService
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/commands", tags=["Commands"])
@@ -90,6 +91,20 @@ def create_presigned_upload_command(
         return handler.create_presigned_upload(payload)
     except CommandValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@router.put(
+    "/documents/raw-upload/{object_key:path}",
+    status_code=status.HTTP_200_OK,
+    summary="Direct raw upload endpoint for local storage mode",
+)
+async def raw_upload_command(
+    object_key: str,
+    request: Request,
+):
+    body = await request.body()
+    StorageService().save_raw_bytes(body, object_key)
+    return {"status": "uploaded", "object_key": object_key, "bytes_written": len(body)}
 
 
 @router.post(

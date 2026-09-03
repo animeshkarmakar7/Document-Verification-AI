@@ -1,6 +1,9 @@
+import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from app.config.settings import settings
 from app.models.ingestion import IngestionJob, OutboxEvent
@@ -98,13 +101,29 @@ class DocumentCommandHandler:
         )
         self.db.commit()
 
-        self.event_publisher.publish(
-            topic=settings.KAFKA_DOCUMENT_INGEST_TOPIC,
-            key=document.id,
-            payload=event.payload,
-        )
-        self.ingestion_repo.mark_outbox_published(event)
-        self.db.commit()
+        try:
+            self.event_publisher.publish(
+                topic=settings.KAFKA_DOCUMENT_INGEST_TOPIC,
+                key=document.id,
+                payload=event.payload,
+            )
+            self.ingestion_repo.mark_outbox_published(event)
+            self.db.commit()
+        except Exception as kafka_err:
+            logger.warning(
+                "Kafka broker unavailable or publish failed; falling back gracefully to Celery/background pipeline: %s",
+                kafka_err,
+            )
+            try:
+                from app.workers.tasks import analyze_document
+                analyze_document.delay(document.id)
+                logger.info("Dispatched analyze_document task directly to Celery for %s", document.id)
+            except Exception as celery_err:
+                logger.warning(
+                    "Celery worker also unavailable; event retained in outbox for asynchronous processing: %s",
+                    celery_err,
+                )
+
         return job
 
     def create_presigned_upload(

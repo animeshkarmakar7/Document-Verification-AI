@@ -1,4 +1,6 @@
+import hashlib
 import html
+import time
 import requests
 import streamlit as st
 
@@ -289,6 +291,16 @@ def get(path):
     return res.json()
 
 
+def put(path_or_url, data=None, headers=None):
+    url = path_or_url if path_or_url.startswith("http") else f"{API_BASE_URL}/{path_or_url}"
+    res = requests.put(url, data=data, headers=headers, timeout=300)
+    res.raise_for_status()
+    try:
+        return res.json()
+    except Exception:
+        return {"status": "ok"}
+
+
 def run_step(label, fn, *args, **kwargs):
     try:
         result = fn(*args, **kwargs)
@@ -356,40 +368,122 @@ with st.sidebar:
 
     if uploaded_file and st.button(T["btn_analyze"], type="primary", use_container_width=True):
         with st.status(T["status_analyzing"], expanded=True) as status_box:
-            files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
+            file_bytes = uploaded_file.getvalue()
+            file_size = len(file_bytes)
+            sha256_hash = hashlib.sha256(file_bytes).hexdigest()
+            doc_id = None
+            doc_data = None
 
-            # Step 1: Upload Document & Publish to Ingestion Queue
-            doc_data = run_step("Document Upload", post, "commands/documents/upload", files=files)
-            if doc_data is None:
-                status_box.update(label="Upload failed.", state="error", expanded=True)
-                st.stop()
+            # ── 1. Smart Upload: Presigned PUT for files > 5MB, standard multipart otherwise ──
+            if file_size > 5 * 1024 * 1024:
+                try:
+                    st.write("Initializing direct storage upload for large document...")
+                    presigned_req = {
+                        "filename": uploaded_file.name,
+                        "content_type": uploaded_file.type or "application/pdf",
+                        "file_size": file_size,
+                    }
+                    presigned = post("commands/documents/presigned-upload", json_payload=presigned_req)
+                    upload_url = presigned["upload_url"]
+                    st.write(f"Streaming file bytes directly ({file_size / (1024 * 1024):.1f} MB)...")
+                    put(upload_url, data=file_bytes, headers=presigned.get("required_headers", {}))
 
-            doc_id = doc_data["document_id"]
+                    complete_req = {
+                        "document_id": presigned["document_id"],
+                        "filename": uploaded_file.name,
+                        "content_type": uploaded_file.type or "application/pdf",
+                        "file_size": file_size,
+                        "sha256": sha256_hash,
+                        "object_key": presigned["object_key"],
+                        "processing_pool": "cpu",
+                    }
+                    queued = post("commands/documents/upload-complete", json_payload=complete_req)
+                    doc_id = queued["document_id"]
+                    doc_data = {
+                        "document_id": doc_id,
+                        "original_filename": uploaded_file.name,
+                        "status": queued["status"],
+                    }
+                    st.write(f"{T['complete_lbl']} Direct Upload Complete — Ingestion Enqueued")
+                except Exception as e:
+                    st.warning(f"Direct presigned upload encountered an issue ({e}); falling back to standard upload...")
+                    doc_id = None
+
+            if doc_id is None:
+                files = {"file": (uploaded_file.name, file_bytes, uploaded_file.type or "application/pdf")}
+                doc_data = run_step("Document Upload", post, "commands/documents/upload", files=files)
+                if doc_data is None:
+                    status_box.update(label="Upload failed.", state="error", expanded=True)
+                    st.stop()
+                doc_id = doc_data["document_id"]
+
             st.session_state.document_id = doc_id
             st.session_state.document_info = doc_data
             st.session_state.chat_display = []
 
-            # Step 2: OCR & Text Extraction
-            run_step("OCR & Text Extraction", post, f"commands/documents/{doc_id}/ingest/text")
+            # ── 2. Live Background Status Polling Loop ──
+            poll_start = time.time()
+            max_poll_seconds = 300
+            last_stage = None
+            consecutive_queued = 0
 
-            # Step 3: Clause Segmentation
-            seg_data = run_step("Clause Segmentation", post, f"commands/documents/{doc_id}/clauses/segment")
+            while time.time() - poll_start < max_poll_seconds:
+                try:
+                    pipeline_status = get(f"queries/documents/{doc_id}/pipeline-status")
+                except Exception:
+                    time.sleep(1.5)
+                    continue
 
-            # Step 4: AI Clause Classification (Gemini)
-            run_step("Clause Classification", post, f"commands/documents/{doc_id}/classify")
+                status_val = pipeline_status.get("status", "")
+                stage_name = pipeline_status.get("stage", "Processing")
+                pct = pipeline_status.get("progress_percent", 10)
+                clause_cnt = pipeline_status.get("clause_count", 0)
 
-            # Step 5: Contractual Risk Scoring
-            run_step("Risk Exposure Scoring", post, f"commands/documents/{doc_id}/score-risk")
+                if stage_name != last_stage:
+                    st.write(f"🔄 [{pct}%] {stage_name} ({clause_cnt} provisions found)")
+                    last_stage = stage_name
 
-            # Step 6: Plain-English Legal Explanations (Gemini)
-            run_step("Plain-English Explanations", post, f"commands/documents/{doc_id}/explain")
+                status_box.update(
+                    label=f"Analyzing... [{pct}%] {stage_name}",
+                    state="running",
+                )
 
-            clause_count = seg_data.get("clause_count", 0) if seg_data else 0
-            status_box.update(
-                label=f"{T['status_complete']} ({clause_count} clauses analyzed)",
-                state="complete",
-                expanded=False,
-            )
+                if pipeline_status.get("is_complete") or status_val == "EXPLAINED":
+                    status_box.update(
+                        label=f"{T['status_complete']} ({clause_cnt} provisions analyzed)",
+                        state="complete",
+                        expanded=False,
+                    )
+                    st.rerun()
+
+                if pipeline_status.get("is_failed") or status_val == "FAILED":
+                    err_msg = pipeline_status.get("error_message") or "Pipeline processing encountered an error."
+                    status_box.update(label=f"Analysis Failed: {err_msg}", state="error")
+                    st.error(err_msg)
+                    st.stop()
+
+                # If status remains QUEUED for 3 polling cycles (e.g. standalone local mode with no Celery worker),
+                # run the synchronous pipeline gracefully so single-node testing never hangs:
+                if status_val == "QUEUED":
+                    consecutive_queued += 1
+                    if consecutive_queued >= 3:
+                        st.info("No active Celery consumer detected; executing pipeline directly...")
+                        run_step("OCR & Text Extraction", post, f"commands/documents/{doc_id}/ingest/text")
+                        seg_data = run_step("Clause Segmentation", post, f"commands/documents/{doc_id}/clauses/segment")
+                        run_step("Clause Classification", post, f"commands/documents/{doc_id}/classify")
+                        run_step("Risk Exposure Scoring", post, f"commands/documents/{doc_id}/score-risk")
+                        run_step("Plain-English Explanations", post, f"commands/documents/{doc_id}/explain")
+                        final_cnt = seg_data.get("clause_count", 0) if seg_data else clause_cnt
+                        status_box.update(
+                            label=f"{T['status_complete']} ({final_cnt} provisions analyzed)",
+                            state="complete",
+                            expanded=False,
+                        )
+                        st.rerun()
+
+                time.sleep(1.5)
+
+            status_box.update(label="Analysis timed out. Please check document status.", state="error")
             st.rerun()
 
     if st.session_state.document_id:
