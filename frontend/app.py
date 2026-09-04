@@ -286,7 +286,7 @@ def post(path, json_payload=None, files=None):
 
 
 def get(path):
-    res = requests.get(f"{API_BASE_URL}/{path}", timeout=60)
+    res = requests.get(f"{API_BASE_URL}/{path}", timeout=180)
     res.raise_for_status()
     return res.json()
 

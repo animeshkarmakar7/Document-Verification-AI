@@ -175,31 +175,25 @@ class LLMRouter:
         if system:
             config_kwargs["system_instruction"] = system
 
-        models_to_try = [self._gemini_model]
-        for alt in ["gemini-3.5-flash", "gemini-3.7-flash"]:
-            if alt not in models_to_try:
-                models_to_try.append(alt)
-
-        for model in models_to_try:
-            for attempt in range(_MAX_RETRIES):
-                try:
-                    response = self.gemini_client.models.generate_content(
-                        model=model,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(**config_kwargs),
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = self.gemini_client.models.generate_content(
+                    model=self._gemini_model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(**config_kwargs),
+                )
+                return response.text or ""
+            except Exception as e:
+                err_str = str(e)
+                if self._is_retryable(err_str) and attempt < _MAX_RETRIES - 1:
+                    wait = _BACKOFF_BASE * (attempt + 1)
+                    logger.warning(
+                        f"Gemini {self._gemini_model} temporary spike (attempt {attempt+1}/{_MAX_RETRIES}), waiting {wait}s: {e}"
                     )
-                    return response.text or ""
-                except Exception as e:
-                    err_str = str(e)
-                    if self._is_retryable(err_str) and attempt < _MAX_RETRIES - 1:
-                        wait = _BACKOFF_BASE * (attempt + 1)
-                        logger.warning(
-                            f"Gemini {model} temporary spike (attempt {attempt+1}/{_MAX_RETRIES}), waiting {wait}s: {e}"
-                        )
-                        time.sleep(wait)
-                    else:
-                        logger.warning(f"Gemini {model} failed, trying alternative: {e}")
-                        break
+                    time.sleep(wait)
+                else:
+                    logger.warning(f"Gemini {self._gemini_model} failed, triggering LLaMA3 fallback: {e}")
+                    break
         return None
 
     def _gemini_generate_structured(
@@ -219,33 +213,27 @@ class LLMRouter:
         if system:
             config_kwargs["system_instruction"] = system
 
-        models_to_try = [self._gemini_model]
-        for alt in ["gemini-3.5-flash", "gemini-3.7-flash"]:
-            if alt not in models_to_try:
-                models_to_try.append(alt)
-
-        for model in models_to_try:
-            for attempt in range(_MAX_RETRIES):
-                try:
-                    response = self.gemini_client.models.generate_content(
-                        model=model,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(**config_kwargs),
+        for attempt in range(_MAX_RETRIES):
+            try:
+                response = self.gemini_client.models.generate_content(
+                    model=self._gemini_model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(**config_kwargs),
+                )
+                raw = response.text or "{}"
+                parsed = json.loads(raw)
+                return schema(**parsed)
+            except Exception as e:
+                err_str = str(e)
+                if self._is_retryable(err_str) and attempt < _MAX_RETRIES - 1:
+                    wait = _BACKOFF_BASE * (attempt + 1)
+                    logger.warning(
+                        f"Gemini {self._gemini_model} structured rate limit (attempt {attempt+1}/{_MAX_RETRIES}), waiting {wait}s: {e}"
                     )
-                    raw = response.text or "{}"
-                    parsed = json.loads(raw)
-                    return schema(**parsed)
-                except Exception as e:
-                    err_str = str(e)
-                    if self._is_retryable(err_str) and attempt < _MAX_RETRIES - 1:
-                        wait = _BACKOFF_BASE * (attempt + 1)
-                        logger.warning(
-                            f"Gemini {model} structured rate limit (attempt {attempt+1}/{_MAX_RETRIES}), waiting {wait}s: {e}"
-                        )
-                        time.sleep(wait)
-                    else:
-                        logger.warning(f"Gemini {model} structured failed, trying alternative: {e}")
-                        break
+                    time.sleep(wait)
+                else:
+                    logger.warning(f"Gemini {self._gemini_model} structured failed, triggering LLaMA3 fallback: {e}")
+                    break
         return None
 
     # ── Groq / LLaMA3 Implementations ────────────────────────────────────────
@@ -258,9 +246,9 @@ class LLMRouter:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        models_to_try = [self._groq_model, "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-8b-8192"]
-        # Deduplicate preserving order
-        models_to_try = list(dict.fromkeys(models_to_try))
+        # Try designated Groq model (LLaMA3 or active fallback)
+        models_to_try = [self._groq_model, "llama-3.3-70b-versatile", "llama-3.1-8b-instant", "groq/compound-mini", "openai/gpt-oss-20b"]
+        models_to_try = list(dict.fromkeys(m for m in models_to_try if m))
 
         for model in models_to_try:
             try:
@@ -271,7 +259,7 @@ class LLMRouter:
                 )
                 return response.choices[0].message.content or ""
             except Exception as e:
-                logger.warning(f"Groq LLaMA3 ({model}) failed: {e}")
+                logger.warning(f"Groq fallback ({model}) failed: {e}")
                 continue
         return None
 
