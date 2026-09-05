@@ -20,7 +20,6 @@ The project is designed around a production-minded separation of concerns:
 - **Heavy processing path**: Kafka + Celery distribute expensive PDF/OCR/chunking/embedding work outside the API request path.
 - **Persistence path**: PostgreSQL stores transactional metadata; MinIO/S3 stores the raw documents; ChromaDB stores embeddings and vector metadata; Redis provides low-latency cache/dedup services.
 
-> **Important implementation note:** the current repository uses **PostgreSQL as the transactional system of record and ChromaDB as the vector database**. It does **not** currently use pgvector. A future pgvector migration is a valid production option, but this README does not claim it is implemented today.
 
 ---
 
