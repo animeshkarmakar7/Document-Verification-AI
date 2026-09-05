@@ -47,6 +47,167 @@ The result is closer to a **document verification and evidence retrieval system 
 
 ---
 
+# Product UI & Working Features
+
+LegalDoc AI is not only a backend ingestion pipeline; the Streamlit application exposes the analysis results as a verification-oriented workspace. The UI is structured around **evidence, explainability, and source traceability** rather than a chat-only interface.
+
+## End-to-end UI flow
+
+```text
+Upload document
+      ↓
+Document validation + SHA-256 fingerprint
+      ↓
+Asynchronous ingestion
+(Kafka → page sharding → Celery workers)
+      ↓
+PDF/OCR extraction → structure-aware chunking → embeddings
+      ↓
+ChromaDB + PostgreSQL persistence
+      ↓
+──────────────────────────────────────────────
+Streamlit analysis workspace
+  • Executive summary
+  • Core provisions + exact PDF evidence
+  • Contractual obligations
+  • Extracted provisions + plain-English explanations
+  • Risk analysis + mitigation guidance
+  • Document-scoped legal inquiry / RAG
+──────────────────────────────────────────────
+```
+
+## 1. Executive Summary dashboard
+
+![Executive Summary UI](docs/screenshots/01-executive-summary.jpeg)
+
+The summary view gives the user a high-level interpretation before they inspect individual clauses. The screenshot shows:
+
+| UI element | What it communicates |
+|---|---|
+| Document title and type | Identifies the analysed contract and its document category |
+| Total provisions | Shows how many provisions were extracted for the document |
+| Executive overview | Condenses the agreement into a readable business/legal overview |
+| Top navigation tabs | Separates summary, risk analysis, and legal inquiry workflows |
+
+This view is backed by the document-summary output described in the analysis pipeline and is intended to avoid forcing the user to read a long contract before understanding its key terms.
+
+## 2. Core provisions with source verification
+
+![Core Document Provisions UI](docs/screenshots/02-core-document-provisions.jpeg)
+
+The core-provisions view is designed around **verification rather than unsupported summarization**. Each important provision is paired with an expandable source reference containing an exact quote from the PDF and the originating page number.
+
+The screenshot demonstrates:
+
+- provision-level summaries written in plain language;
+- `Verify in PDF — Page N` source anchors;
+- exact quoted clause text;
+- separate evidence blocks for multiple provisions.
+
+This directly reflects the repository's source-span/citation design: retrieved or analysed content retains document location metadata so the user can trace an interpretation back to the original contract.
+
+## 3. Contractual obligations view
+
+![Contractual Obligations UI](docs/screenshots/03-contractual-obligations.jpeg)
+
+The obligations section converts contract language into actionable obligations. In the screenshot, the system presents tenant responsibilities and then exposes the supporting PDF language underneath each item.
+
+This makes the distinction between **interpretation** and **evidence** explicit:
+
+```text
+Plain-language obligation
+        ↓
+Source page reference
+        ↓
+Exact quote from the contract
+```
+
+Typical outputs visible in this view include payment responsibilities, maintenance duties, and permitted-use restrictions.
+
+## 4. Extracted document provisions
+
+![Extracted Document Provisions UI](docs/screenshots/04-extracted-provisions.jpeg)
+
+The extracted-provisions screen exposes the underlying clause inventory instead of only showing a high-level summary. The screenshot shows a categorized provision, the extracted source text, and a generated plain-English explanation.
+
+This view is useful for auditing the extraction pipeline because the user can inspect:
+
+- the legal section/category assigned to a provision;
+- the original extracted clause text;
+- the system-generated plain-English summary;
+- the relationship between the structured analysis and the source document.
+
+The repository's clause segmentation and analysis services preserve structured clause records separately from generated explanations, which allows the UI to display these artifacts without regenerating them on every page load.
+
+## 5. Risk analysis and exposure
+
+![Risk Analysis UI](docs/screenshots/05-risk-analysis.jpeg)
+
+The risk view moves beyond extraction into a structured assessment workflow. The screenshot shows a risk-labelled section containing a score, a plain-language summary, a risk assessment, potential user impact, a mitigation recommendation, and the supporting clause text.
+
+The current analysis model exposes these result types:
+
+| Risk output | Purpose |
+|---|---|
+| Risk level / score | Communicates severity in a compact form |
+| Plain summary | Explains the provision in non-legal language |
+| Risk assessment | Describes why the provision may require attention |
+| Potential user impact | Highlights the practical consequence |
+| Mitigation recommendation | Suggests what should be reviewed or clarified |
+| PDF verification | Preserves the supporting source text and page |
+
+This is consistent with the repository's risk-analysis pipeline, which stores structured risk outputs so the dashboard can render them without re-running the model for every page request.
+
+## 6. Navigation model
+
+The UI is intentionally divided into three major workflows visible in the screenshots:
+
+```text
+Executive Summary & Provisions
+            │
+            ├── Understand the contract
+            ├── Inspect important provisions
+            └── Verify source evidence
+
+Risk Analysis & Exposure
+            │
+            ├── Identify potentially risky terms
+            ├── Understand user impact
+            └── Review mitigation guidance
+
+Legal Inquiry Assistant
+            │
+            ├── Ask document-scoped questions
+            ├── Retrieve relevant evidence
+            └── Generate grounded answers with citations
+```
+
+The third workflow maps to the repository's RAG query path: document-scoped retrieval, hybrid search, ranked evidence selection, grounded prompting, and structured response generation.
+
+## UI design principles
+
+The current interface follows five practical principles:
+
+1. **Evidence first** — important claims can be expanded to reveal the source quote.
+2. **Progressive disclosure** — summaries appear first; detailed clauses and evidence are available on demand.
+3. **Separation of concerns** — summary, risk, obligations, extraction, and inquiry have distinct surfaces.
+4. **Auditability** — page references and exact quoted text remain visible alongside interpretations.
+5. **LLM output is not treated as the source of truth** — the uploaded document and retrieved evidence remain the grounding boundary.
+
+> **Implementation status:** the screenshots demonstrate the current Streamlit presentation layer. The backend capabilities documented elsewhere in this README describe the implemented services and processing pipeline; features listed as production-roadmap items are intentionally not presented as completed here.
+
+---
+
+# Architecture at a Glance
+
+![LegalDoc AI Architecture](docs/architecture.png)
+
+The architecture separates the system into ingestion, processing/vector storage, client/UI, retrieval/generation, and persistence responsibilities. The important design boundary is that large-document processing happens asynchronously while the UI reads persisted analysis artifacts and requests document-scoped retrieval when the user asks questions.
+
+The detailed Mermaid architecture and request-to-response flows remain below for engineers who want the implementation-level view.
+
+---
+
 # Full Production Architecture
 
 ```mermaid
@@ -1098,6 +1259,14 @@ Document-Verification-AI/
 │   └── docker-compose.yml
 ├── frontend/
 │   └── app.py
+├── docs/
+│   ├── architecture.png
+│   └── screenshots/
+│       ├── 01-executive-summary.jpeg
+│       ├── 02-core-document-provisions.jpeg
+│       ├── 03-contractual-obligations.jpeg
+│       ├── 04-extracted-provisions.jpeg
+│       └── 05-risk-analysis.jpeg
 ├── pyproject.toml
 ├── poetry.lock
 ├── render.yaml
@@ -1330,6 +1499,32 @@ Typed output makes answer parsing deterministic and makes citations/confidence f
 | Full authentication/authorization | No | Required before multi-tenant deployment |
 | Formal retrieval/RAG benchmark | No | Required for quantified quality claims |
 | Full production observability | Partial logging | Metrics + tracing + dashboards + alerts |
+
+---
+
+# Current Working Surface
+
+The current README and UI screenshots support the following implementation narrative:
+
+| Capability | Current repository/UI evidence |
+|---|---|
+| Document upload and validation | Implemented in the command/upload path; UI is the entry point for document analysis |
+| SHA-256 document fingerprinting | Implemented for duplicate detection and idempotent document handling |
+| Object storage | Raw files are stored outside PostgreSQL through MinIO/S3-compatible storage |
+| Asynchronous ingestion | Kafka events, page sharding, and Celery workers are implemented |
+| OCR/text extraction | PDF/native-text processing and scanned-document OCR paths are implemented |
+| Structure-aware chunking | Implemented with page/section/source metadata retained |
+| Embedding + vector indexing | SentenceTransformers embeddings are stored in ChromaDB |
+| Hybrid retrieval | Dense retrieval + BM25-style lexical retrieval + RRF + lightweight reranking |
+| Executive summary | UI screenshot shows document-level summary presentation |
+| Provision verification | UI screenshot shows page-level exact quotes for important provisions |
+| Obligation extraction | UI screenshot shows plain-language obligations with source verification |
+| Provision inspection | UI screenshot shows categorized extracted clauses and plain-English explanations |
+| Risk analysis | UI screenshot shows risk level/score, impact and mitigation presentation |
+| Document-scoped RAG | Implemented query path with evidence-grounded structured responses |
+| Chat persistence | Implemented in PostgreSQL; conversational query rewriting is still a roadmap item |
+
+This distinction is important for technical credibility: the README separates **what the repository and current UI demonstrate** from **future production hardening and evaluation work**.
 
 ---
 
