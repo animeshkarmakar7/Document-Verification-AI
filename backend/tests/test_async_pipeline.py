@@ -104,5 +104,16 @@ def test_presigned_upload_endpoint(client):
 
 def test_pipeline_status_endpoint_not_found(client):
     """Verify GET /api/v1/queries/documents/{id}/pipeline-status returns 404 for unknown document."""
-    response = client.get("/api/v1/queries/documents/nonexistent-id-123/pipeline-status")
-    assert response.status_code == 404
+    from app.api.dependencies import get_db
+    from unittest.mock import MagicMock
+
+    mock_db = MagicMock()
+    # Return None for get_by_id so query handler raises QueryNotFoundError
+    mock_db.scalar.return_value = None
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        response = client.get("/api/v1/queries/documents/nonexistent-id-123/pipeline-status")
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+

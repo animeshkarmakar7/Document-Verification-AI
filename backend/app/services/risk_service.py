@@ -8,6 +8,8 @@ from app.models.risk import ClauseRisk
 from app.repositories.classification_repository import ClassificationRepository
 from app.repositories.clause_repository import ClauseRepository
 from app.repositories.document_repository import DocumentRepository
+from app.repositories.explanation_repository import ExplanationRepository
+from app.repositories.ocr_repository import OCRRepository
 from app.repositories.risk_repository import RiskRepository
 from app.services.risk_evaluator import GeminiRiskEvaluator, InputClauseToEvaluate
 from sqlalchemy.orm import Session
@@ -55,7 +57,10 @@ class RiskService:
         self.clause_repo = ClauseRepository(db)
         self.class_repo = ClassificationRepository(db)
         self.risk_repo = RiskRepository(db)
+        self.expl_repo = ExplanationRepository(db)
+        self.ocr_repo = OCRRepository(db)
         self.evaluator = evaluator or GeminiRiskEvaluator()
+
 
     def score_document_risk(
         self, document_id: str, force: bool = False
@@ -148,6 +153,44 @@ class RiskService:
         classifications = self.class_repo.list_by_document(document_id)
         class_map = {c.clause_pk: _val(c.category) for c in classifications}
 
+        # Resolve clauses, explanations, and page offsets
+        clauses = self.clause_repo.list_by_document(document_id)
+        clause_obj_map = {c.id: c for c in clauses}
+        clause_id_map = {c.clause_id: c for c in clauses}
+
+        ocr_res = self.ocr_repo.get_by_document_id(document_id)
+        page_offsets: list[tuple[int, int, int]] = []
+        if ocr_res and ocr_res.layout and "pages" in ocr_res.layout:
+            curr_pos = 0
+            for p in ocr_res.layout["pages"]:
+                p_num = p.get("page_number", 1)
+                p_text_len = len(p.get("text", ""))
+                page_offsets.append((curr_pos, curr_pos + p_text_len, p_num))
+                curr_pos += p_text_len + 2
+
+        def _get_page_num(start: int | None) -> int:
+            if start is None:
+                return 1
+            for p_start, p_end, p_num in page_offsets:
+                if p_start <= start <= p_end:
+                    return p_num
+            return 1
+
+        explanations = self.expl_repo.list_by_document(document_id)
+        expl_map = {e.clause_id: e.plain_summary for e in explanations}
+
+        def _get_risk_cat(r_flag: str, r_reason: str, cat: str) -> str:
+            text_combo = (r_flag + " " + r_reason + " " + cat).lower()
+            if any(w in text_combo for w in ["fee", "rent", "cost", "pay", "deposit", "financial", "penalty", "charge", "price"]):
+                return "FINANCIAL"
+            elif any(w in text_combo for w in ["law", "jurisdiction", "court", "compliance", "statute", "privacy", "dispute"]):
+                return "COMPLIANCE"
+            elif any(w in text_combo for w in ["terminate", "lock-in", "compete", "strategic", "exclusive", "renewal"]):
+                return "STRATEGIC"
+            elif any(w in text_combo for w in ["confidential", "reputation", "disparage", "public"]):
+                return "REPUTATIONAL"
+            return "OPERATIONAL"
+
         total_clauses = len(risks)
         high_count = sum(1 for r in risks if _val(r.risk_level) == "HIGH")
         medium_count = sum(1 for r in risks if _val(r.risk_level) == "MEDIUM")
@@ -170,19 +213,55 @@ class RiskService:
                 category_breakdown[cat][r_level] = 0
             category_breakdown[cat][r_level] += 1
 
-        high_risk_details = [
-            {
+        high_risk_details = []
+        for r in risks:
+            if _val(r.risk_level) == "HIGH":
+                c_obj = clause_obj_map.get(r.clause_pk) or clause_id_map.get(r.clause_id)
+                cat = class_map.get(r.clause_pk, "OTHER")
+                p_num = _get_page_num(c_obj.source_start if c_obj else None)
+                heading = c_obj.heading if c_obj and c_obj.heading else None
+                summary = expl_map.get(r.clause_id)
+                v_text = c_obj.text if c_obj else ""
+                r_cat = _get_risk_cat(_val(r.flag_type), r.risk_reason or "", cat)
+                high_risk_details.append({
+                    "clause_id": r.clause_id,
+                    "category": cat,
+                    "risk_level": _val(r.risk_level),
+                    "risk_score": r.risk_score,
+                    "risk_reason": r.risk_reason,
+                    "flag_type": _val(r.flag_type),
+                    "suggested_mitigation": r.suggested_mitigation,
+                    "section_heading": heading,
+                    "page_number": p_num,
+                    "plain_summary": summary,
+                    "risk_category": r_cat,
+                    "verbatim_text": v_text,
+                })
+
+        clauses_response = []
+        for r in risks:
+            c_obj = clause_obj_map.get(r.clause_pk) or clause_id_map.get(r.clause_id)
+            cat = class_map.get(r.clause_pk, "OTHER")
+            p_num = _get_page_num(c_obj.source_start if c_obj else None)
+            heading = c_obj.heading if c_obj and c_obj.heading else None
+            summary = expl_map.get(r.clause_id)
+            v_text = c_obj.text if c_obj else ""
+            r_cat = _get_risk_cat(_val(r.flag_type), r.risk_reason or "", cat)
+            clauses_response.append({
                 "clause_id": r.clause_id,
-                "category": class_map.get(r.clause_pk, "OTHER"),
+                "clause_pk": r.clause_pk,
                 "risk_level": _val(r.risk_level),
                 "risk_score": r.risk_score,
                 "risk_reason": r.risk_reason,
                 "flag_type": _val(r.flag_type),
                 "suggested_mitigation": r.suggested_mitigation,
-            }
-            for r in risks
-            if _val(r.risk_level) == "HIGH"
-        ]
+                "section_heading": heading,
+                "page_number": p_num,
+                "plain_summary": summary,
+                "risk_category": r_cat,
+                "verbatim_text": v_text,
+                "created_at": r.created_at,
+            })
 
         return {
             "document_id": document_id,
@@ -193,20 +272,9 @@ class RiskService:
             "low_risk_count": low_count,
             "category_breakdown": category_breakdown,
             "high_risk_clauses": high_risk_details,
-            "clauses": [
-                {
-                    "clause_id": r.clause_id,
-                    "clause_pk": r.clause_pk,
-                    "risk_level": _val(r.risk_level),
-                    "risk_score": r.risk_score,
-                    "risk_reason": r.risk_reason,
-                    "flag_type": _val(r.flag_type),
-                    "suggested_mitigation": r.suggested_mitigation,
-                    "created_at": r.created_at,
-                }
-                for r in risks
-            ],
+            "clauses": clauses_response,
         }
+
 
     def get_clause_risk(self, clause_id: str) -> ClauseRisk | None:
         risk = self.risk_repo.get_by_clause_id(clause_id)

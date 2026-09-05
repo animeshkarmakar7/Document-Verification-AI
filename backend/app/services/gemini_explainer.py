@@ -56,6 +56,7 @@ class InputClauseToExplain:
     text: str
     source_start: int
     source_end: int
+    page_number: int | None = None
 
 
 def _flesch_kincaid_grade(text: str) -> float:
@@ -141,7 +142,8 @@ class GeminiExplainer:
                 "Clauses:\n"
             )
             for c in chunk:
-                prompt += f"--- Clause ID: {c.clause_id} | Category: {c.category} ---\n{c.text}\n\n"
+                page_info = f" | Page {c.page_number}" if c.page_number else ""
+                prompt += f"--- Clause ID: {c.clause_id}{page_info} | Category: {c.category} ---\n{c.text}\n\n"
 
             try:
                 batch = self.router.generate_structured(
@@ -206,7 +208,7 @@ class GeminiExplainer:
             return self._summary_fallback(clauses)
 
         full_text = "\n\n".join(
-            f"[{c.clause_id} | span {c.source_start}-{c.source_end} | {c.category}]: {c.text}" for c in clauses[:25]
+            f"[{c.clause_id} | Page {c.page_number or 1} | {c.category}]: {c.text}" for c in clauses[:30]
         )
         prompt = (
             "You are a senior legal analyst synthesizing an Executive Document Summary Report for a user.\n"
@@ -217,8 +219,8 @@ class GeminiExplainer:
             "- executive_summary: A 3-4 sentence high-level overview of the scope and main terms\n"
             "- key_points: Array of items, each containing:\n"
             "    * statement: Summary of the core provision\n"
-            "    * clause_id: Matching clause_id from input (e.g. doc-clause-0001)\n"
-            "    * source_location: Source span (e.g. 'chars 120-450') or page reference\n"
+            "    * clause_id: Matching clause_id from input\n"
+            "    * source_location: Human-friendly page reference strictly in format 'Page X' (e.g. 'Page 1' or 'Page 2')\n"
             "    * verbatim_proof: Exact verbatim sentence quoted directly from the input text as evidence\n"
             "- important_dates_fees: Array of VerifiedSummaryItem for payment terms, fees, notice periods, or dates\n"
             "- user_obligations: Array of VerifiedSummaryItem for what the user is required to do or pay\n"
@@ -240,11 +242,12 @@ class GeminiExplainer:
         categories = list(set(c.category for c in clauses))
         total = len(clauses)
         top = clauses[0] if clauses else None
+        top_page = f"Page {top.page_number or 1}" if top else "Page 1"
         
         fallback_item = VerifiedSummaryItem(
             statement=f"Document contains {total} segmented provisions across categories including {', '.join(categories[:3])}.",
             clause_id=top.clause_id if top else "N/A",
-            source_location=f"chars {top.source_start}-{top.source_end}" if top else "N/A",
+            source_location=top_page,
             verbatim_proof=top.text[:150] if top else "No text evidence available.",
         )
         return DocumentSummaryOutput(
@@ -256,7 +259,7 @@ class GeminiExplainer:
                 VerifiedSummaryItem(
                     statement="Review extracted clause provisions for specific fee structures and notice periods.",
                     clause_id=top.clause_id if top else "N/A",
-                    source_location=f"chars {top.source_start}-{top.source_end}" if top else "N/A",
+                    source_location=top_page,
                     verbatim_proof=top.text[:120] if top else "Evidence in clause text.",
                 )
             ],
@@ -264,7 +267,7 @@ class GeminiExplainer:
                 VerifiedSummaryItem(
                     statement="Comply with specified contractual requirements as outlined in the text.",
                     clause_id=top.clause_id if top else "N/A",
-                    source_location=f"chars {top.source_start}-{top.source_end}" if top else "N/A",
+                    source_location=top_page,
                     verbatim_proof=top.text[:120] if top else "Evidence in clause text.",
                 )
             ],
@@ -272,7 +275,7 @@ class GeminiExplainer:
                 VerifiedSummaryItem(
                     statement="Standard contractual rights and remedies as stated in the agreement.",
                     clause_id=top.clause_id if top else "N/A",
-                    source_location=f"chars {top.source_start}-{top.source_end}" if top else "N/A",
+                    source_location=top_page,
                     verbatim_proof=top.text[:120] if top else "Evidence in clause text.",
                 )
             ],

@@ -12,6 +12,11 @@ class ClauseRiskResponse(BaseModel):
     risk_reason: str
     flag_type: RiskFlagType
     suggested_mitigation: str | None = None
+    section_heading: str | None = None
+    page_number: int = 1
+    plain_summary: str | None = None
+    risk_category: str = "OPERATIONAL"
+    verbatim_text: str = ""
     created_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -29,6 +34,11 @@ class HighRiskClauseDetail(BaseModel):
     risk_reason: str
     flag_type: str
     suggested_mitigation: str | None = None
+    section_heading: str | None = None
+    page_number: int = 1
+    plain_summary: str | None = None
+    risk_category: str = "OPERATIONAL"
+    verbatim_text: str = ""
 
 
 class RiskDashboardResponse(BaseModel):
@@ -41,3 +51,4 @@ class RiskDashboardResponse(BaseModel):
     category_breakdown: dict[str, dict[str, int]]
     high_risk_clauses: list[HighRiskClauseDetail]
     clauses: list[ClauseRiskResponse]
+

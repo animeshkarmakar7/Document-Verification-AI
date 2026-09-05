@@ -101,3 +101,72 @@ def test_score_document_risk_success(mock_db):
     assert saved[0].risk_level == RiskLevel.HIGH
     assert saved[0].risk_score == 0.8
     assert doc.status == DocumentStatus.RISK_SCORED
+
+
+def test_get_risk_dashboard_enriched_metadata(mock_db):
+    doc = Document(
+        id="doc-123",
+        original_filename="doc.pdf",
+        stored_filename="stored.pdf",
+        mime_type="application/pdf",
+        extension="pdf",
+        storage_uri="/tmp/doc.pdf",
+        object_key="doc-123.pdf",
+        file_size=1024,
+        sha256="dummyhash1234567890",
+        status=DocumentStatus.EXPLAINED,
+    )
+    clause = Clause(
+        id="clause-pk-1",
+        document_id="doc-123",
+        clause_id="doc-123-clause-0001",
+        text="Tenant shall pay penalty of 20% on delayed rent.",
+        source_start=15,
+        source_end=65,
+        heading="2. Penalties and Fees",
+        order_index=1,
+    )
+    risk = ClauseRisk(
+        id="risk-pk-1",
+        document_id="doc-123",
+        clause_id="doc-123-clause-0001",
+        clause_pk="clause-pk-1",
+        risk_level=RiskLevel.HIGH,
+        risk_score=0.85,
+        risk_reason="Unreasonable financial penalty fee.",
+        flag_type=RiskFlagType.UNFAIR_TERM,
+        suggested_mitigation="Cap penalty fee at 5%",
+    )
+    classification = ClauseClassification(
+        id="class-pk-1",
+        document_id="doc-123",
+        clause_id="doc-123-clause-0001",
+        clause_pk="clause-pk-1",
+        category=ClauseCategory.PENALTY_FEES,
+        model_version="gemini-3.6-flash",
+    )
+
+    service = RiskService(db=mock_db)
+    service.doc_repo.get_by_id = MagicMock(return_value=doc)
+    service.risk_repo.list_by_document = MagicMock(return_value=[risk])
+    service.clause_repo.list_by_document = MagicMock(return_value=[clause])
+    service.class_repo.list_by_document = MagicMock(return_value=[classification])
+    service.ocr_repo.get_by_document_id = MagicMock(return_value=None)
+
+    mock_expl = MagicMock()
+    mock_expl.clause_id = "doc-123-clause-0001"
+    mock_expl.plain_summary = "You will be charged a 20% extra fee if rent is late."
+    service.expl_repo.list_by_document = MagicMock(return_value=[mock_expl])
+
+    dashboard = service.get_risk_dashboard("doc-123")
+    assert dashboard["total_clauses"] == 1
+    assert dashboard["high_risk_count"] == 1
+    assert len(dashboard["clauses"]) == 1
+
+    clause_item = dashboard["clauses"][0]
+    assert clause_item["section_heading"] == "2. Penalties and Fees"
+    assert clause_item["page_number"] == 1
+    assert clause_item["plain_summary"] == "You will be charged a 20% extra fee if rent is late."
+    assert clause_item["risk_category"] == "FINANCIAL"
+    assert "Tenant shall pay penalty" in clause_item["verbatim_text"]
+

@@ -90,16 +90,16 @@ class DocumentQueryHandler:
         clause_count = len(clauses)
 
         STAGE_MAP = {
-            DocumentStatus.QUEUED: ("Queued for Ingestion", 10),
-            DocumentStatus.OCR_COMPLETE: ("OCR & Text Extracted", 30),
-            DocumentStatus.CLAUSES_SEGMENTED: ("Provisions Segmented", 50),
-            DocumentStatus.CLASSIFIED: ("Provisions Classified", 70),
-            DocumentStatus.RISK_SCORED: ("Risk Scored", 85),
+            DocumentStatus.QUEUED: ("Validating & Securely Ingesting Document", 15),
+            DocumentStatus.OCR_COMPLETE: ("Extracting & Structuring Document Text", 35),
+            DocumentStatus.CLAUSES_SEGMENTED: ("Segmenting Agreement Provisions", 55),
+            DocumentStatus.CLASSIFIED: ("Classifying Terms & Legal Context", 70),
+            DocumentStatus.RISK_SCORED: ("Analyzing Contractual Risks & Liabilities", 85),
             DocumentStatus.EXPLAINED: ("Analysis Complete", 100),
-            DocumentStatus.FAILED: ("Processing Failed", 100),
+            DocumentStatus.FAILED: ("Processing Unsuccessful", 100),
         }
 
-        stage_name, progress = STAGE_MAP.get(document.status, ("Processing", 20))
+        stage_name, progress = STAGE_MAP.get(document.status, ("Analyzing Document Provisions", 25))
         is_complete = document.status == DocumentStatus.EXPLAINED
         is_failed = document.status == DocumentStatus.FAILED
 
@@ -117,3 +117,40 @@ class DocumentQueryHandler:
             "is_complete": is_complete,
             "is_failed": is_failed,
         }
+
+    def get_suggested_questions(self, document_id: str) -> list[str]:
+        doc = self.get_document(document_id)
+        clauses = self.clause_repo.list_by_document(document_id)
+        
+        # Determine contract type / tone from clauses
+        all_text = " ".join(c.text.lower() for c in clauses[:10])
+        
+        if any(w in all_text for w in ["rent", "tenant", "landlord", "lease", "premises"]):
+            return [
+                "What are the security deposit refund conditions?",
+                "What is the required termination notice period and lock-in term?",
+                "Are there any penalty fees for late rent payment?",
+                "What are the tenant's maintenance and utility responsibilities?",
+                "Is subletting or commercial use of the property permitted?",
+            ]
+        elif any(w in all_text for w in ["confidential", "nda", "proprietary", "disclose"]):
+            return [
+                "What information is specifically defined as Confidential Information?",
+                "What is the duration of the non-disclosure obligation?",
+                "What remedies or injunctions are available upon breach?",
+                "What are the standard exclusions from confidentiality?",
+            ]
+        elif any(w in all_text for w in ["employment", "employee", "employer", "salary", "bonus"]):
+            return [
+                "What are the termination notice and severance provisions?",
+                "What non-compete and non-solicitation restrictions apply?",
+                "How are bonuses and expense reimbursements handled?",
+                "What are the intellectual property ownership assignment terms?",
+            ]
+        else:
+            return [
+                "What are the primary financial liabilities and payment terms?",
+                "What are the termination conditions and notice requirements?",
+                "What are the key liability limitations and indemnification clauses?",
+                "What are the core rights and remedies granted under this agreement?",
+            ]

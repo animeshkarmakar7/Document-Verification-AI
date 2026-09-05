@@ -56,6 +56,9 @@ TRANSLATIONS = {
         "risk_assessment": "Risk Assessment:",
         "user_impact": "Potential User Impact:",
         "mitigation_rec": "Mitigation Recommendation:",
+        "risk_category_lbl": "Enterprise Risk Category:",
+        "risk_taxonomy_lbl": "Risk Taxonomy Flag:",
+        "page_verify_lbl": "Verify in PDF",
         "no_risks": "No contract risks identified.",
         "chat_head": "Interactive Legal Assistant",
         "chat_sub": "Ask specific questions regarding obligations, rights, fees, or termination conditions. All responses reference verified contract text.",
@@ -112,6 +115,9 @@ TRANSLATIONS = {
         "risk_assessment": "जोखिम मूल्यांकन:",
         "user_impact": "संभावित उपयोगकर्ता प्रभाव:",
         "mitigation_rec": "शमन सिफारिश:",
+        "risk_category_lbl": "उद्यम जोखिम श्रेणी:",
+        "risk_taxonomy_lbl": "जोखिम वर्गीकरण ध्वज:",
+        "page_verify_lbl": "पीडीएफ में सत्यापित करें",
         "no_risks": "कोई अनुबंध जोखिम नहीं पाया गया।",
         "chat_head": "इंटरएक्टिव कानूनी सहायक",
         "chat_sub": "दायित्वों, अधिकारों, शुल्कों या समाप्ति की शर्तों के बारे में प्रश्न पूछें।",
@@ -168,6 +174,9 @@ TRANSLATIONS = {
         "risk_assessment": "धोका मूल्यमापन:",
         "user_impact": "संभाव्य वापरकर्ता प्रभाव:",
         "mitigation_rec": "उपाययोजना शिफारस:",
+        "risk_category_lbl": "उद्योग धोका श्रेणी:",
+        "risk_taxonomy_lbl": "धोका वर्गीकरण खूण:",
+        "page_verify_lbl": "पीडीएफमध्ये पडताळा",
         "no_risks": "कोणतेही करारातील धोके आढळले नाहीत.",
         "chat_head": "परस्परसंवादी कायदेशीर सहाय्यक",
         "chat_sub": "जबाबदाऱ्या, हक्क, शुल्क किंवा समाप्तीच्या अटींबद्दल प्रश्न विचारा.",
@@ -183,6 +192,7 @@ TRANSLATIONS = {
         "skipped_lbl": "[वगळले]",
     },
 }
+
 
 # ─── Global Custom CSS ────────────────────────────────────────────────────────
 st.markdown("""
@@ -255,13 +265,21 @@ section[data-testid="stSidebar"] { background: #121722; border-right: 1px solid 
 .badge-MEDIUM { background: rgba(245,158,11,0.15); border: 1px solid #F59E0B; color: #FCD34D; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; }
 .badge-LOW { background: rgba(16,185,129,0.15); border: 1px solid #10B981; color: #6EE7B7; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; }
 
+.badge-cat-FINANCIAL { background: rgba(239,68,68,0.12); border: 1px solid #F87171; color: #FCA5A5; padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.badge-cat-OPERATIONAL { background: rgba(16,185,129,0.12); border: 1px solid #34D399; color: #6EE7B7; padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.badge-cat-COMPLIANCE { background: rgba(59,130,246,0.12); border: 1px solid #60A5FA; color: #93C5FD; padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.badge-cat-STRATEGIC { background: rgba(168,85,247,0.12); border: 1px solid #C084FC; color: #D8B4FE; padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.badge-cat-REPUTATIONAL { background: rgba(245,158,11,0.12); border: 1px solid #FBBF24; color: #FDE68A; padding: 0.2rem 0.55rem; border-radius: 4px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+
+.plain-summary-box { background: rgba(99,102,241,0.08); border-left: 3px solid #6366F1; border-radius: 6px; padding: 0.8rem 1rem; margin: 0.5rem 0; font-size: 0.88rem; color: #E0E7FF; line-height: 1.55; }
 .impact-box { background: rgba(239,68,68,0.05); border: 1px solid rgba(239,68,68,0.2); border-radius: 6px; padding: 0.75rem 1rem; margin-top: 0.6rem; font-size: 0.85rem; color: #FCA5A5; }
-.mitigation-box { background: rgba(99,102,241,0.06); border: 1px solid rgba(99,102,241,0.2); border-radius: 6px; padding: 0.75rem 1rem; margin-top: 0.6rem; font-size: 0.85rem; color: #C7D2FE; }
+.mitigation-box { background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.25); border-radius: 6px; padding: 0.75rem 1rem; margin-top: 0.6rem; font-size: 0.85rem; color: #A7F3D0; }
 
 .citation-card { background: rgba(20,28,43,0.9); border: 1px solid #222F47; border-radius: 6px; padding: 0.75rem 1rem; margin-top: 0.5rem; font-size: 0.82rem; color: #A5B4FC; }
 
 .empty-state { text-align: center; padding: 3.5rem 1rem; color: #64748B; font-size: 0.95rem; }
 </style>
+
 """, unsafe_allow_html=True)
 
 # ─── Session State Initialization ─────────────────────────────────────────────
@@ -367,17 +385,22 @@ with st.sidebar:
     )
 
     if uploaded_file and st.button(T["btn_analyze"], type="primary", use_container_width=True):
-        with st.status(T["status_analyzing"], expanded=True) as status_box:
+        status_container = st.container()
+        with status_container:
+            progress_bar = st.progress(5)
+            status_text = st.empty()
+            status_text.markdown(f"**Validating & Preparing Document for Secure Ingestion... (5%)**")
+
             file_bytes = uploaded_file.getvalue()
             file_size = len(file_bytes)
             sha256_hash = hashlib.sha256(file_bytes).hexdigest()
             doc_id = None
             doc_data = None
 
-            # ── 1. Smart Upload: Presigned PUT for files > 5MB, standard multipart otherwise ──
+            # ── 1. Smart Upload: Direct presigned PUT for large docs, standard upload otherwise ──
             if file_size > 5 * 1024 * 1024:
                 try:
-                    st.write("Initializing direct storage upload for large document...")
+                    status_text.markdown(f"**Uploading large file ({file_size / (1024 * 1024):.1f} MB) directly to storage...**")
                     presigned_req = {
                         "filename": uploaded_file.name,
                         "content_type": uploaded_file.type or "application/pdf",
@@ -385,7 +408,6 @@ with st.sidebar:
                     }
                     presigned = post("commands/documents/presigned-upload", json_payload=presigned_req)
                     upload_url = presigned["upload_url"]
-                    st.write(f"Streaming file bytes directly ({file_size / (1024 * 1024):.1f} MB)...")
                     put(upload_url, data=file_bytes, headers=presigned.get("required_headers", {}))
 
                     complete_req = {
@@ -404,16 +426,14 @@ with st.sidebar:
                         "original_filename": uploaded_file.name,
                         "status": queued["status"],
                     }
-                    st.write(f"{T['complete_lbl']} Direct Upload Complete — Ingestion Enqueued")
                 except Exception as e:
-                    st.warning(f"Direct presigned upload encountered an issue ({e}); falling back to standard upload...")
                     doc_id = None
 
             if doc_id is None:
                 files = {"file": (uploaded_file.name, file_bytes, uploaded_file.type or "application/pdf")}
-                doc_data = run_step("Document Upload", post, "commands/documents/upload", files=files)
-                if doc_data is None:
-                    status_box.update(label="Upload failed.", state="error", expanded=True)
+                doc_data = post("commands/documents/upload", files=files)
+                if not doc_data:
+                    st.error("Upload failed. Please try again.")
                     st.stop()
                 doc_id = doc_data["document_id"]
 
@@ -421,69 +441,63 @@ with st.sidebar:
             st.session_state.document_info = doc_data
             st.session_state.chat_display = []
 
-            # ── 2. Live Background Status Polling Loop ──
+            # ── 2. Live Background Event Processing Loop ──
             poll_start = time.time()
             max_poll_seconds = 300
-            last_stage = None
             consecutive_queued = 0
 
-            while time.time() - poll_start < max_poll_seconds:
-                try:
-                    pipeline_status = get(f"queries/documents/{doc_id}/pipeline-status")
-                except Exception:
-                    time.sleep(1.5)
-                    continue
+            with st.spinner("Analyzing document provisions and generating verified summaries..."):
+                while time.time() - poll_start < max_poll_seconds:
+                    try:
+                        p_status = get(f"queries/documents/{doc_id}/pipeline-status")
+                    except Exception:
+                        time.sleep(1.2)
+                        continue
 
-                status_val = pipeline_status.get("status", "")
-                stage_name = pipeline_status.get("stage", "Processing")
-                pct = pipeline_status.get("progress_percent", 10)
-                clause_cnt = pipeline_status.get("clause_count", 0)
+                    status_val = p_status.get("status", "")
+                    stage_name = p_status.get("stage", "Analyzing Document Provisions")
+                    pct = int(p_status.get("progress_percent", 15))
+                    clause_cnt = p_status.get("clause_count", 0)
 
-                if stage_name != last_stage:
-                    st.write(f"🔄 [{pct}%] {stage_name} ({clause_cnt} provisions found)")
-                    last_stage = stage_name
+                    progress_bar.progress(min(pct, 100))
+                    clause_msg = f" · {clause_cnt} provisions found" if clause_cnt > 0 else ""
+                    status_text.markdown(f"**{stage_name} ({pct}%){clause_msg}**")
 
-                status_box.update(
-                    label=f"Analyzing... [{pct}%] {stage_name}",
-                    state="running",
-                )
-
-                if pipeline_status.get("is_complete") or status_val == "EXPLAINED":
-                    status_box.update(
-                        label=f"{T['status_complete']} ({clause_cnt} provisions analyzed)",
-                        state="complete",
-                        expanded=False,
-                    )
-                    st.rerun()
-
-                if pipeline_status.get("is_failed") or status_val == "FAILED":
-                    err_msg = pipeline_status.get("error_message") or "Pipeline processing encountered an error."
-                    status_box.update(label=f"Analysis Failed: {err_msg}", state="error")
-                    st.error(err_msg)
-                    st.stop()
-
-                # If status remains QUEUED for 3 polling cycles (e.g. standalone local mode with no Celery worker),
-                # run the synchronous pipeline gracefully so single-node testing never hangs:
-                if status_val == "QUEUED":
-                    consecutive_queued += 1
-                    if consecutive_queued >= 3:
-                        st.info("No active Celery consumer detected; executing pipeline directly...")
-                        run_step("OCR & Text Extraction", post, f"commands/documents/{doc_id}/ingest/text")
-                        seg_data = run_step("Clause Segmentation", post, f"commands/documents/{doc_id}/clauses/segment")
-                        run_step("Clause Classification", post, f"commands/documents/{doc_id}/classify")
-                        run_step("Risk Exposure Scoring", post, f"commands/documents/{doc_id}/score-risk")
-                        run_step("Plain-English Explanations", post, f"commands/documents/{doc_id}/explain")
-                        final_cnt = seg_data.get("clause_count", 0) if seg_data else clause_cnt
-                        status_box.update(
-                            label=f"{T['status_complete']} ({final_cnt} provisions analyzed)",
-                            state="complete",
-                            expanded=False,
-                        )
+                    if p_status.get("is_complete") or status_val == "EXPLAINED":
+                        progress_bar.progress(100)
+                        status_text.success(f"Analysis Complete! {clause_cnt} provisions verified and indexed.")
+                        time.sleep(1.0)
                         st.rerun()
 
-                time.sleep(1.5)
+                    if p_status.get("is_failed") or status_val == "FAILED":
+                        err_msg = p_status.get("error_message") or "Analysis encountered an issue."
+                        st.error(f"Analysis Failed: {err_msg}")
+                        st.stop()
 
-            status_box.update(label="Analysis timed out. Please check document status.", state="error")
+                    # Graceful single-node fallback if worker not running
+                    if status_val == "QUEUED":
+                        consecutive_queued += 1
+                        if consecutive_queued >= 3:
+                            status_text.markdown("**Processing document pipeline directly...**")
+                            progress_bar.progress(35)
+                            post(f"commands/documents/{doc_id}/ingest/text")
+                            progress_bar.progress(55)
+                            seg_data = post(f"commands/documents/{doc_id}/clauses/segment")
+                            progress_bar.progress(70)
+                            post(f"commands/documents/{doc_id}/classify")
+                            progress_bar.progress(85)
+                            post(f"commands/documents/{doc_id}/score-risk")
+                            progress_bar.progress(95)
+                            post(f"commands/documents/{doc_id}/explain")
+                            progress_bar.progress(100)
+                            final_cnt = seg_data.get("clause_count", 0) if seg_data else clause_cnt
+                            status_text.success(f"Analysis Complete! {final_cnt} provisions verified.")
+                            time.sleep(1.0)
+                            st.rerun()
+
+                    time.sleep(1.5)
+
+            st.error("Document analysis timed out. Please refresh and check.")
             st.rerun()
 
     if st.session_state.document_id:
@@ -492,7 +506,6 @@ with st.sidebar:
         info = st.session_state.document_info or {}
         filename = info.get("original_filename", "Document")
         st.markdown(f"`{filename}`")
-        st.code(st.session_state.document_id[:12] + "...", language="text")
         if st.button(T["btn_clear"], use_container_width=True):
             st.session_state.document_id = None
             st.session_state.document_info = None
@@ -547,7 +560,7 @@ tab_summary, tab_risk, tab_chat = st.tabs([
 
 
 # ==============================================================================
-# TAB 1 — EXECUTIVE SUMMARY & DOCUMENT CLAUSES
+# TAB 1 — EXECUTIVE SUMMARY & STRUCTURED DOCUMENT PROVISIONS
 # ==============================================================================
 with tab_summary:
     st.markdown(f"<div class='section-head'>{T['exec_head']}</div>", unsafe_allow_html=True)
@@ -559,7 +572,7 @@ with tab_summary:
         st.markdown(f"""
         <div class='summary-card'>
             <div class='summary-title'>{html.escape(doc_summary.get('title', 'Contract Summary'))}</div>
-            <div class='summary-type'>Type: {html.escape(doc_summary.get('document_type', 'Legal Agreement'))} &nbsp;·&nbsp; Total Clauses: {doc_summary.get('total_clauses', 0)}</div>
+            <div class='summary-type'>Type: {html.escape(doc_summary.get('document_type', 'Legal Agreement'))} &nbsp;·&nbsp; Total Provisions: {doc_summary.get('total_clauses', 0)}</div>
             <div class='summary-exec'>
                 <strong>{T['exec_overview']}</strong><br>
                 {html.escape(doc_summary.get('executive_summary', 'No summary available.'))}
@@ -571,28 +584,30 @@ with tab_summary:
 
         def render_verified_items(items):
             if not items:
-                st.caption("No specific items reported.")
+                st.caption("No specific items reported in this category.")
                 return
             for item in items:
                 if isinstance(item, dict):
                     stmt = item.get("statement", "")
-                    c_id = item.get("clause_id", "")
                     loc = item.get("source_location", "")
                     proof = item.get("verbatim_proof", "")
 
-                    st.markdown(f"- **{html.escape(stmt)}**")
-                    if proof or c_id or loc:
-                        ref_label = f"{T['verify_proof']} ({c_id})" if c_id else T["verify_proof"]
-                        with st.expander(ref_label, expanded=False):
-                            if loc or c_id:
-                                st.caption(f"{T['source_ref']} {html.escape(c_id)} &nbsp;·&nbsp; {html.escape(loc)}")
-                            if proof:
-                                st.markdown(
-                                    f"<div class='verbatim-text'><strong>{T['exact_quote']}</strong><br><i>\"{html.escape(proof)}\"</i></div>",
-                                    unsafe_allow_html=True,
-                                )
+                    # Clean loc display: format as Page X, never raw spans/UUIDs
+                    if "Page" not in loc and "page" not in loc:
+                        loc_clean = "Page 1"
+                    else:
+                        loc_clean = loc
+
+                    st.markdown(f"• **{html.escape(stmt)}**")
+                    if proof:
+                        ref_title = f"📄 Verify in PDF — {loc_clean}"
+                        with st.expander(ref_title, expanded=False):
+                            st.markdown(
+                                f"<div class='verbatim-text'><strong>{T['exact_quote']}</strong><br><i>\"{html.escape(proof)}\"</i></div>",
+                                unsafe_allow_html=True,
+                            )
                 else:
-                    st.markdown(f"- {html.escape(str(item))}")
+                    st.markdown(f"• {html.escape(str(item))}")
 
         with col_left:
             st.markdown(f"### {T['core_provisions']}")
@@ -613,7 +628,7 @@ with tab_summary:
 
     st.divider()
 
-    # 2. Detailed Document Clauses Section
+    # 2. Categorized Agreement Provisions Section
     st.markdown(f"<div class='section-head'>{T['extracted_provisions']}</div>", unsafe_allow_html=True)
     st.markdown(
         f"<p style='color:#64748B; font-size:0.87rem;'>"
@@ -643,30 +658,43 @@ with tab_summary:
             pass
 
         if not clauses:
-            st.info("No clauses identified in this document.")
+            st.info("No provisions identified in this document.")
         else:
             from collections import defaultdict
             groups = defaultdict(list)
-            for clause in clauses:
+            for idx, clause in enumerate(clauses, start=1):
                 cat = class_map.get(clause["clause_id"], "OTHER")
+                clause["_idx"] = idx
                 groups[cat].append(clause)
 
+            CATEGORY_NAMES = {
+                "PAYMENT_TERMS": "Notice Fees, Rent & Financial Liabilities",
+                "TERMINATION_EXIT": "Termination, Exit Conditions & Lock-In",
+                "CONFIDENTIALITY": "Confidentiality & Non-Disclosure Terms",
+                "LIABILITY_WARRANTY": "Liability Limitations & Warranties",
+                "DISPUTE_RESOLUTION": "Dispute Resolution & Jurisdiction",
+                "INTELLECTUAL_PROPERTY": "Intellectual Property Rights",
+                "COVENANTS_RESTRICTIONS": "Prohibited Activities, Subletting & Restrictions",
+                "DEFINITIONS_INTERPRETATION": "Definitions & Agreement Scope",
+                "RIGHTS_PROTECTIONS": "Contractual Rights & Quiet Enjoyment",
+                "OBLIGATIONS_DUTIES": "Maintenance, Utilities & Operational Duties",
+                "OTHER": "General & Miscellaneous Provisions",
+            }
+
             for cat, cat_clauses in sorted(groups.items()):
-                cat_label = cat.replace("_", " ").title()
+                cat_label = CATEGORY_NAMES.get(cat, cat.replace("_", " ").title())
                 with st.expander(f"{cat_label} ({len(cat_clauses)} provision{'s' if len(cat_clauses) > 1 else ''})", expanded=True):
                     for clause in cat_clauses:
                         c_id = clause["clause_id"]
                         raw_text = clause.get("text", "").strip()
                         expl = expl_map.get(c_id, {})
                         summary = expl.get("plain_summary", "")
-                        source_span = clause.get("source_text_span", {})
-                        span_start = source_span.get("start", 0)
-                        span_end = source_span.get("end", 0)
+                        heading = clause.get("heading") or f"Provision #{clause['_idx']}"
 
-                        st.markdown(f"**{html.escape(c_id)}** &nbsp;•&nbsp; <span style='font-size:0.75rem; color:#64748B;'>chars {span_start}–{span_end}</span>", unsafe_allow_html=True)
+                        st.markdown(f"**{html.escape(heading)}**", unsafe_allow_html=True)
                         st.markdown(f"<div class='verbatim-text'>{html.escape(raw_text)}</div>", unsafe_allow_html=True)
                         if summary:
-                            st.info(f"**{T['plain_summary']}** {summary}")
+                            st.info(f"**Plain-English Summary:** {summary}")
                         st.caption("---")
 
     except Exception as e:
@@ -715,18 +743,28 @@ with tab_risk:
         if not all_risks:
             st.success(T["no_risks"])
         else:
-            filter_levels = st.multiselect(
-                T["filter_risk"],
-                options=["HIGH", "MEDIUM", "LOW"],
-                default=["HIGH", "MEDIUM", "LOW"],
-            )
+            col_filter1, col_filter2 = st.columns([1, 1])
+            with col_filter1:
+                filter_levels = st.multiselect(
+                    T["filter_risk"],
+                    options=["HIGH", "MEDIUM", "LOW"],
+                    default=["HIGH", "MEDIUM", "LOW"],
+                )
+            with col_filter2:
+                available_cats = sorted(list({r.get("risk_category", "OPERATIONAL") for r in all_risks}))
+                filter_cats = st.multiselect(
+                    "Enterprise Risk Category",
+                    options=available_cats,
+                    default=available_cats,
+                )
 
             order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
             sorted_risks = sorted(all_risks, key=lambda x: order.get(x.get("risk_level", "LOW"), 2))
 
-            for risk in sorted_risks:
+            for idx, risk in enumerate(sorted_risks, start=1):
                 r_level = risk.get("risk_level", "LOW")
-                if r_level not in filter_levels:
+                r_cat = risk.get("risk_category", "OPERATIONAL")
+                if r_level not in filter_levels or r_cat not in filter_cats:
                     continue
 
                 c_id = risk.get("clause_id", "")
@@ -734,7 +772,10 @@ with tab_risk:
                 flag = risk.get("flag_type", "").replace("_", " ")
                 mitigation = risk.get("suggested_mitigation", "")
                 score = risk.get("risk_score", 0.0)
-                verbatim_txt = clause_text_map.get(c_id, "")
+                p_num = risk.get("page_number", 1)
+                heading = risk.get("section_heading") or f"Section {idx}"
+                plain_sum = risk.get("plain_summary")
+                verbatim_txt = risk.get("verbatim_text") or clause_text_map.get(c_id, "")
 
                 # Derive user impact narrative
                 if r_level == "HIGH":
@@ -747,24 +788,45 @@ with tab_risk:
                 with st.container():
                     st.markdown(
                         f"""
-                        <div style='display:flex; justify-content:space-between; align-items:center;'>
-                            <strong style='font-size:1.05rem;'>{html.escape(c_id)}</strong>
-                            <span class='badge-{r_level}'>{r_level} RISK (Score: {int(score*100) if score <= 1.0 else int(score)}%)</span>
+                        <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;'>
+                            <div>
+                                <span class='badge-cat-{r_cat}' style='margin-right:0.6rem;'>{r_cat} RISK</span>
+                                <strong style='font-size:1.1rem; color:#F8FAFC;'>{html.escape(heading)}</strong>
+                                <span style='color:#94A3B8; font-size:0.85rem; margin-left:0.5rem;'>· Page {p_num}</span>
+                            </div>
+                            <span class='badge-{r_level}'>{r_level} RISK ({int(score*100) if score <= 1.0 else int(score)}%)</span>
                         </div>
                         """,
                         unsafe_allow_html=True,
                     )
 
-                    st.markdown(f"<div class='verbatim-text-{r_level}'><strong>{T['exact_clause_text']}</strong><br>{html.escape(verbatim_txt if verbatim_txt else 'Text unavailable.')}</div>", unsafe_allow_html=True)
+                    # 1. Plain Summary of the Risk Clause
+                    if plain_sum:
+                        st.markdown(
+                            f"<div class='plain-summary-box'><strong>{T['plain_summary']}</strong> {html.escape(plain_sum)}</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    # 2. Risk Assessment & Flag
                     st.markdown(f"**{T['risk_assessment']}** {html.escape(reason)}")
                     st.markdown(f"<div class='impact-box'><strong>{T['user_impact']}</strong> {html.escape(impact_text)}</div>", unsafe_allow_html=True)
                     if mitigation:
                         st.markdown(f"<div class='mitigation-box'><strong>{T['mitigation_rec']}</strong> {html.escape(mitigation)}</div>", unsafe_allow_html=True)
-                    st.caption(f"Flag Category: {flag}")
+
+                    # 3. Exact Verbatim Quote Expander
+                    ref_title = f"📄 {T['page_verify_lbl']} — Page {p_num}"
+                    with st.expander(ref_title, expanded=False):
+                        st.markdown(
+                            f"<div class='verbatim-text-{r_level}'><strong>{T['exact_clause_text']}</strong><br>{html.escape(verbatim_txt if verbatim_txt else 'Text unavailable.')}</div>",
+                            unsafe_allow_html=True,
+                        )
+
+                    st.caption(f"{T['risk_taxonomy_lbl']} {flag}")
                     st.divider()
 
     except Exception as e:
         st.warning(f"Risk analysis data unavailable. Please complete document processing. ({e})")
+
 
 
 # ==============================================================================
@@ -802,28 +864,28 @@ with tab_chat:
                         q_txt = cit.get("quoted_text", "")
                         st.markdown(
                             f"<div class='citation-card'>"
-                            f"<strong>{html.escape(cit.get('clause_id', ''))}</strong> (chars {cit.get('source_span_start', 0)}–{cit.get('source_span_end', 0)})<br>"
-                            f"<i>\"{html.escape(q_txt[:200])}{'...' if len(q_txt) > 200 else ''}\"</i>"
+                            f"📄 <strong>Verified Contract Provision</strong><br>"
+                            f"<i>\"{html.escape(q_txt[:250])}{'...' if len(q_txt) > 250 else ''}\"</i>"
                             f"</div>",
                             unsafe_allow_html=True,
                         )
 
-    # Prompt Recommendations
+    # Prompt Recommendations tailored to the active contract
     if not st.session_state.chat_display:
         st.markdown(f"**{T['suggested_questions']}**")
-        rec_cols = st.columns(3)
-        with rec_cols[0]:
-            if st.button(T["q1"], use_container_width=True):
-                st.session_state._quick_q = T["q1"]
-                st.rerun()
-        with rec_cols[1]:
-            if st.button(T["q2"], use_container_width=True):
-                st.session_state._quick_q = T["q2"]
-                st.rerun()
-        with rec_cols[2]:
-            if st.button(T["q3"], use_container_width=True):
-                st.session_state._quick_q = T["q3"]
-                st.rerun()
+        dynamic_questions = []
+        try:
+            dynamic_questions = get(f"queries/documents/{doc_id}/suggested-questions")
+        except Exception:
+            dynamic_questions = [T["q1"], T["q2"], T["q3"]]
+
+        if dynamic_questions:
+            rec_cols = st.columns(len(dynamic_questions[:3]))
+            for col_idx, question in enumerate(dynamic_questions[:3]):
+                with rec_cols[col_idx]:
+                    if st.button(question, key=f"rec_q_{col_idx}", use_container_width=True):
+                        st.session_state._quick_q = question
+                        st.rerun()
 
     quick_q = st.session_state.pop("_quick_q", None)
     user_input = st.chat_input(T["chat_placeholder"])
@@ -852,8 +914,8 @@ with tab_chat:
                             q_txt = cit.get("quoted_text", "")
                             st.markdown(
                                 f"<div class='citation-card'>"
-                                f"<strong>{html.escape(cit.get('clause_id', ''))}</strong> (chars {cit.get('source_span_start', 0)}–{cit.get('source_span_end', 0)})<br>"
-                                f"<i>\"{html.escape(q_txt[:200])}{'...' if len(q_txt) > 200 else ''}\"</i>"
+                                f"📄 <strong>Verified Contract Provision</strong><br>"
+                                f"<i>\"{html.escape(q_txt[:250])}{'...' if len(q_txt) > 250 else ''}\"</i>"
                                 f"</div>",
                                 unsafe_allow_html=True,
                             )

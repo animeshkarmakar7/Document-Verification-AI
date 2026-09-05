@@ -6,6 +6,7 @@ from app.repositories.clause_repository import ClauseRepository
 from app.repositories.classification_repository import ClassificationRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.explanation_repository import ExplanationRepository
+from app.repositories.ocr_repository import OCRRepository
 from app.services.gemini_explainer import (
     CONFIDENCE_THRESHOLD,
     GeminiExplainer,
@@ -42,6 +43,7 @@ class ExplanationService:
         self.clause_repo = ClauseRepository(db)
         self.class_repo = ClassificationRepository(db)
         self.expl_repo = ExplanationRepository(db)
+        self.ocr_repo = OCRRepository(db)
         self.explainer = explainer or GeminiExplainer()
 
     def explain_document(
@@ -205,9 +207,27 @@ class ExplanationService:
         classifications = self.class_repo.list_by_document(document_id)
         class_map = {c.clause_pk: _val(c.category) for c in classifications}
 
+        # Resolve page offset boundaries from OCRResult layout if available
+        ocr_res = self.ocr_repo.get_by_document_id(document_id)
+        page_offsets: list[tuple[int, int, int]] = []  # (start_char, end_char, page_num)
+        if ocr_res and ocr_res.layout and "pages" in ocr_res.layout:
+            curr_pos = 0
+            for p in ocr_res.layout["pages"]:
+                p_num = p.get("page_number", 1)
+                p_text_len = len(p.get("text", ""))
+                page_offsets.append((curr_pos, curr_pos + p_text_len, p_num))
+                curr_pos += p_text_len + 2  # account for "\n\n" separator
+
+        def _get_page_num(start: int) -> int:
+            for p_start, p_end, p_num in page_offsets:
+                if p_start <= start <= p_end:
+                    return p_num
+            return 1
+
         inputs = []
         for clause in clauses:
             cat = class_map.get(clause.id, "OTHER")
+            page_num = _get_page_num(clause.source_start)
             inputs.append(
                 InputClauseToExplain(
                     clause_id=clause.clause_id,
@@ -215,6 +235,7 @@ class ExplanationService:
                     text=clause.text,
                     source_start=clause.source_start,
                     source_end=clause.source_end,
+                    page_number=page_num,
                 )
             )
 

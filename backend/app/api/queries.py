@@ -90,6 +90,73 @@ def get_pipeline_status_query(
 
 
 @router.get(
+    "/documents/{document_id}/events",
+    status_code=status.HTTP_200_OK,
+)
+async def stream_pipeline_events_query(
+    document_id: str,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """
+    Server-Sent Events (SSE) streaming real-time status transitions of the document pipeline.
+    """
+    import asyncio
+    import json
+    from fastapi.responses import StreamingResponse
+
+    async def event_generator():
+        handler = DocumentQueryHandler(db=db)
+        last_progress = -1
+        max_duration = 300  # 5 minutes
+        start_time = asyncio.get_event_loop().time()
+
+        while asyncio.get_event_loop().time() - start_time < max_duration:
+            try:
+                status_dict = handler.get_pipeline_status(document_id)
+                curr_progress = status_dict.get("progress_percent", 0)
+
+                # Stream on change or milestone
+                if curr_progress != last_progress or status_dict.get("is_complete") or status_dict.get("is_failed"):
+                    last_progress = curr_progress
+                    data_str = json.dumps(status_dict)
+                    yield f"data: {data_str}\n\n"
+
+                if status_dict.get("is_complete") or status_dict.get("is_failed"):
+                    break
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e), 'is_failed': True})}\n\n"
+                break
+
+            await asyncio.sleep(1.2)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get(
+    "/documents/{document_id}/suggested-questions",
+    response_model=list[str],
+    status_code=status.HTTP_200_OK,
+)
+def get_suggested_questions_query(
+    document_id: str,
+    db: Annotated[Session, Depends(get_db)],
+):
+    handler = DocumentQueryHandler(db=db)
+    try:
+        return handler.get_suggested_questions(document_id)
+    except QueryNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
     "/documents/{document_id}/clauses",
     response_model=ClauseListResponse,
     status_code=status.HTTP_200_OK,
