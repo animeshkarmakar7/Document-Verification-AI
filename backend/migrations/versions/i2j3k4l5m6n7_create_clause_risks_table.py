@@ -12,7 +12,7 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.execute(
-        "ALTER TYPE documentstatus ADD VALUE IF NOT EXISTS 'RISK_SCORED' AFTER 'CLASSIFIED'"
+        "ALTER TYPE document_status ADD VALUE IF NOT EXISTS 'RISK_SCORED' AFTER 'CLASSIFIED'"
     )
 
     risk_level_enum = postgresql.ENUM(
