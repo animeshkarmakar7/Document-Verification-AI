@@ -4,7 +4,7 @@ version = "0.1.0"
 description = ""
 package-mode = false
 authors = [
-    {name = "Animesh Karmakar",email = "animeshkarmakar992@gmail.com"}
+    {name = "Animesh Karmakar",email = "animeshkarmakar710@gmail.com"}
 ]
 requires-python = ">=3.14,<4.0.0"
 dependencies = [
