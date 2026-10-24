@@ -71,76 +71,110 @@ class RAGService:
     def client(self, value):
         self.router.gemini_client = value
 
-    def chat(self, document_id: str, query: str, top_k: int = 4) -> dict:
+    def chat(
+        self,
+        document_id: str,
+        query: str,
+        top_k: int = 4,
+        *,
+        persist_messages: bool = True,
+        include_evaluation_details: bool = False,
+        index_document: bool = True,
+    ) -> dict:
         doc = self.doc_repo.get_by_id(document_id)
         if not doc:
             raise DocumentNotFoundError(f"Document '{document_id}' not found")
 
         clauses = self.clause_repo.list_by_document(document_id)
         if not clauses:
-            user_msg = ChatMessage(document_id=document_id, role="user", content=query)
-            self.chat_repo.create(user_msg)
-            assistant_msg = ChatMessage(
-                document_id=document_id,
-                role="assistant",
-                content="No clauses found for this document to answer your question.",
-                citations=[],
-                confidence=0.0,
-            )
-            self.chat_repo.create(assistant_msg)
-            self.db.commit()
-            return {
-                "message_id": assistant_msg.id,
+            no_clause_answer = "No clauses found for this document to answer your question."
+            assistant_msg = None
+            if persist_messages:
+                user_msg = ChatMessage(document_id=document_id, role="user", content=query)
+                self.chat_repo.create(user_msg)
+                assistant_msg = ChatMessage(
+                    document_id=document_id,
+                    role="assistant",
+                    content=no_clause_answer,
+                    citations=[],
+                    confidence=0.0,
+                )
+                self.chat_repo.create(assistant_msg)
+                self.db.commit()
+            result = {
+                "message_id": assistant_msg.id if assistant_msg else None,
                 "document_id": document_id,
                 "query": query,
-                "answer": assistant_msg.content,
+                "answer": no_clause_answer,
                 "citations": [],
                 "confidence": 0.0,
-                "created_at": assistant_msg.created_at,
+                "created_at": assistant_msg.created_at if assistant_msg else None,
             }
+            if include_evaluation_details:
+                result.update({
+                    "retrieved_contexts": [],
+                    "retrieved_clause_ids": [],
+                    "retrieval_scores": [],
+                    "generation_mode": "no_clauses",
+                })
+            return result
 
-        # Index clauses into ChromaDB vector store
-        try:
-            self.vector_store.index_document_clauses(document_id, clauses)
-        except Exception as e:
-            logger.warning(f"Vector store indexing skipped during chat: {e}")
+        if index_document:
+            try:
+                self.vector_store.index_document_clauses(document_id, clauses)
+            except Exception as e:
+                logger.warning(f"Vector store indexing skipped during chat: {e}")
 
-        # Perform hybrid vector search
         search_results = self.vector_store.hybrid_search(
             document_id=document_id, query=query, clauses=clauses, top_k=top_k
         )
 
         best_score = search_results[0].score if search_results else 0.0
+        if persist_messages:
+            self.chat_repo.create(ChatMessage(document_id=document_id, role="user", content=query))
 
-        user_msg = ChatMessage(document_id=document_id, role="user", content=query)
-        self.chat_repo.create(user_msg)
-
-        if not self.client or best_score < SIMILARITY_THRESHOLD:
+        if not self.client or not search_results:
+            generation_mode = "fallback_no_client" if not self.client else "fallback_no_results"
             answer_data = self._generate_fallback(query, search_results, best_score)
         else:
-            answer_data = self._generate_gemini_answer(query, search_results)
+            try:
+                answer_data = self._generate_gemini_answer(query, search_results)
+                generation_mode = "llm_router"
+            except Exception as exc:
+                logger.warning(f"RAG answer generation failed, using fallback: {exc}")
+                answer_data = self._generate_fallback(query, search_results, best_score)
+                generation_mode = "fallback_generation_error"
 
-        citations_json = [c.model_dump() for c in answer_data.citations]
+        citations_json = [citation.model_dump() for citation in answer_data.citations]
+        assistant_msg = None
+        if persist_messages:
+            assistant_msg = ChatMessage(
+                document_id=document_id,
+                role="assistant",
+                content=answer_data.answer,
+                citations=citations_json,
+                confidence=answer_data.confidence,
+            )
+            self.chat_repo.create(assistant_msg)
+            self.db.commit()
 
-        assistant_msg = ChatMessage(
-            document_id=document_id,
-            role="assistant",
-            content=answer_data.answer,
-            citations=citations_json,
-            confidence=answer_data.confidence,
-        )
-        self.chat_repo.create(assistant_msg)
-        self.db.commit()
-
-        return {
-            "message_id": assistant_msg.id,
+        result = {
+            "message_id": assistant_msg.id if assistant_msg else None,
             "document_id": document_id,
             "query": query,
             "answer": answer_data.answer,
             "citations": citations_json,
             "confidence": answer_data.confidence,
-            "created_at": assistant_msg.created_at,
+            "created_at": assistant_msg.created_at if assistant_msg else None,
         }
+        if include_evaluation_details:
+            result.update({
+                "retrieved_contexts": [item.text for item in search_results],
+                "retrieved_clause_ids": [item.clause_id for item in search_results],
+                "retrieval_scores": [item.score for item in search_results],
+                "generation_mode": generation_mode,
+            })
+        return result
 
     def get_chat_history(self, document_id: str) -> list[ChatMessage]:
         doc = self.doc_repo.get_by_id(document_id)
@@ -177,8 +211,8 @@ class RAGService:
                 temperature=0.1,
             )
         except Exception as e:
-            logger.warning(f"RAG LLM generation failed, using fallback: {e}")
-            return self._generate_fallback(query, search_results, 0.5)
+            logger.warning(f"RAG LLM generation failed: {e}")
+            raise
 
     def _generate_fallback(
         self, query: str, search_results: list[VectorSearchResult], best_score: float
