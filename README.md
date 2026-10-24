@@ -1580,3 +1580,18 @@ Persistence
 ---
 
 **LegalDoc AI is best understood as a production-oriented document intelligence pipeline with a grounded conversational layer: validate → fingerprint → store → queue → shard → extract → chunk → embed → retrieve → reason → cite → persist.**
+
+
+## Retrieval evaluation
+
+The repository includes an offline retrieval evaluator for comparing dense vector search, BM25-style keyword search, Reciprocal Rank Fusion, and the current hybrid reranked retrieval pipeline. It reports Recall@5/10, Precision@5/10, Hit Rate@5, MRR@10, nDCG@10, retrieval latency percentiles, and empty-result rate against manually labeled questions.
+
+See [the evaluation guide](backend/evaluation/README.md) for dataset format, setup, and execution. Add manually verified question labels to `backend/evaluation/datasets/retrieval_gold.jsonl`; [an example record](backend/evaluation/datasets/retrieval_gold.example.jsonl) shows the expected fields. The example IDs are placeholders and must be replaced with real IDs from your database.
+
+Run from the repository root after configuring PostgreSQL, ChromaDB, and project dependencies:
+
+```bash
+poetry run python backend/evaluation/run_retrieval_eval.py --dataset backend/evaluation/datasets/retrieval_gold.jsonl
+```
+
+Results are written to `artifacts/retrieval-evaluation/`. Report only measured values from your own labeled dataset; the evaluator does not assume that hybrid retrieval outperforms either baseline.
