@@ -38,6 +38,8 @@ The evaluator warms the configured embedding model and ChromaDB before timed que
 
 ## Interpretation
 
+The `hybrid_rrf` and `hybrid_reranked` variants use the same production hybrid-search candidate generation. The lexical reranker preserves fused scores and uses lexical overlap only to break ties, so it cannot move a lower-scoring fused result above a higher-scoring one. A score tie-breaker is not a learned cross-encoder reranker; it should only be kept if held-out evaluation supports it.
+
 Compare all variants on the same labeled queries and corpus. A higher recall means more relevant clauses were retrieved; higher MRR means the first relevant clause tends to rank earlier; higher nDCG rewards ranking highly relevant clauses near the top. Compare these gains with latency percentiles and empty-result rate.
 
 The evaluator does not claim that hybrid retrieval is better unless measured results demonstrate it. It does not measure generated-answer correctness, citation faithfulness, or full API latency; those require a separate answer-level evaluation.
