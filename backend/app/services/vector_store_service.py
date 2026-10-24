@@ -415,7 +415,13 @@ class VectorStoreService:
         return len(deduped_chunks)
 
     def hybrid_search(
-        self, document_id: str, query: str, clauses: list[Clause], top_k: int = 3, strict: bool = False
+        self,
+        document_id: str,
+        query: str,
+        clauses: list[Clause],
+        top_k: int = 3,
+        strict: bool = False,
+        apply_reranker: bool = True,
     ) -> list[VectorSearchResult]:
         """
         Executes hybrid semantic search (dense vector similarity + BM25 keyword matching).
@@ -472,9 +478,13 @@ class VectorStoreService:
 
         if dense_results:
             fused = self._rrf_fuse(dense_results, sparse_results, top_k=top_k * 2)
-            return self.reranker.rerank(query, fused, top_k=top_k)
+            if apply_reranker:
+                return self.reranker.rerank(query, fused, top_k=top_k)
+            return fused[:top_k]
 
-        return self.reranker.rerank(query, sparse_results, top_k=top_k)
+        if apply_reranker:
+            return self.reranker.rerank(query, sparse_results, top_k=top_k)
+        return sparse_results[:top_k]
 
     def _lexical_hybrid_fallback(self, query: str, clauses: list[Clause], top_k: int) -> list[VectorSearchResult]:
         return self._sparse_keyword_search(query, clauses, top_k)
