@@ -281,6 +281,18 @@ async def run_evaluation(args):
                 raise RuntimeError(f"No chunks were indexed for document_id={document_id}")
             indexed_chunk_counts[document_id] = count
 
+        for record in records:
+            document_id = str(record["document_id"])
+            actual_clause_ids = {
+                str(clause.clause_id) for clause in clauses_by_document[document_id]
+            }
+            unknown_clause_ids = set(record["relevant_clause_ids"]) - actual_clause_ids
+            if unknown_clause_ids:
+                raise ValueError(
+                    f"Query {record['query_id']} references clause IDs not stored "
+                    f"under document {document_id}: {sorted(unknown_clause_ids)}"
+                )
+
         embedding_dimension = vector_store.validate_embedding_dimensions()
         rag_service = RAGService(
             db=db,
