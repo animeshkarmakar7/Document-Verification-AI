@@ -59,10 +59,15 @@ class RetrievalVariants:
         )
 
     def hybrid_rrf(self, document_id, query, clauses, top_k):
-        dense = self.dense_only(document_id, query, clauses, max(top_k * 2, 10))
-        sparse = self.vector_store._sparse_keyword_search(query, clauses, top_k=top_k * 4)
-        fused = self.vector_store._rrf_fuse(dense, sparse, top_k=max(top_k * 2, 10))
-        return self._unique_by_clause(fused, top_k)
+        results = self.vector_store.hybrid_search(
+            document_id=document_id,
+            query=query,
+            clauses=clauses,
+            top_k=top_k,
+            strict=True,
+            apply_reranker=False,
+        )
+        return self._unique_by_clause(results, top_k)
 
     def hybrid_reranked(self, document_id, query, clauses, top_k):
         results = self.vector_store.hybrid_search(
