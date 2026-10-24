@@ -99,24 +99,17 @@ class SearchReranker:
         if not query_terms:
             return results[:top_k]
 
-        reranked = []
-        for result in results:
+        ranked = []
+        for original_rank, result in enumerate(results):
             text_terms = set(re.findall(r"\b\w+\b", result.text.lower()))
-            overlap_bonus = len(query_terms & text_terms) / max(len(query_terms), 1)
-            reranked.append(
-                VectorSearchResult(
-                    clause_id=result.clause_id,
-                    text=result.text,
-                    score=round(result.score * (1 + (0.05 * overlap_bonus)), 6),
-                    source_start=result.source_start,
-                    source_end=result.source_end,
-                    heading=result.heading,
-                    chunk_id=result.chunk_id,
-                )
-            )
+            overlap = len(query_terms & text_terms) / len(query_terms)
+            ranked.append((result, overlap, original_rank))
 
-        reranked.sort(key=lambda item: item.score, reverse=True)
-        return reranked[:top_k]
+        ranked.sort(
+            key=lambda item: (item[0].score, item[1], -item[2]),
+            reverse=True,
+        )
+        return [item[0] for item in ranked[:top_k]]
 
 
 class VectorStoreService:
