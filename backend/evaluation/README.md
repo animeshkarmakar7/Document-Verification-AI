@@ -30,17 +30,11 @@ From the repository root with dependencies and the database configured:
 poetry run python backend/evaluation/run_retrieval_eval.py --dataset backend/evaluation/datasets/retrieval_gold.jsonl
 ```
 
-To upsert the clauses for the dataset's documents before evaluating:
-
-```bash
-poetry run python backend/evaluation/run_retrieval_eval.py --dataset backend/evaluation/datasets/retrieval_gold.jsonl --index-missing
-```
-
-The evaluator uses the configured ChromaDB directory and PostgreSQL database. Run it against a stable corpus and avoid indexing while ingestion is modifying the same documents. The dense-only and hybrid variants require the vector index to contain chunks for the evaluated documents.
+The evaluator uses PostgreSQL for clause text and IDs and creates a fresh, isolated ChromaDB directory for each run. It does not delete or modify the application's configured ChromaDB collection. Every dataset document is indexed with the configured embedding model before evaluation. The evaluator validates embedding dimensions and stops if indexing fails or if the stored vectors do not match the model.
 
 Outputs are written to `artifacts/retrieval-evaluation/retrieval_query_results.csv` and `artifacts/retrieval-evaluation/retrieval_summary.json`. The CSV contains per-query results and latency. The JSON contains aggregate Recall@5/10, Precision@5/10, Hit Rate@5, MRR@10, nDCG@10, p50/p95/p99 retrieval latency, and empty-result rate.
 
-The latency measurement starts after service initialization, so it excludes model loading and database startup. It includes query embedding and retrieval work. Run multiple times on the target deployment environment for representative production latency.
+The evaluator warms the configured embedding model and ChromaDB before timed queries, so reported retrieval latency excludes initial model loading and initial vector-store access. It includes query embedding and retrieval work. With only a few questions, p95 and p99 are unstable; use at least 50–100 manually verified questions and repeat runs on the target deployment environment for representative latency. Because each run uses an isolated index, these results do not modify or replace the live application's index.
 
 ## Interpretation
 
