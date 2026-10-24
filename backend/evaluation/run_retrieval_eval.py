@@ -99,6 +99,7 @@ def main():
         parser.error("--top-k must be at least 1")
 
     records = load_dataset(args.dataset)
+    retrieval_k = max(args.top_k, 10)
     db = SessionLocal()
     vector_store = VectorStoreService()
     repository = ClauseRepository(db)
@@ -127,7 +128,7 @@ def main():
             for variant_name in VARIANTS:
                 started = time.perf_counter()
                 retrieved = getattr(variants, variant_name)(
-                    document_id, record["query"], clauses, args.top_k
+                    document_id, record["query"], clauses, retrieval_k
                 )
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 retrieved_ids = [result.clause_id for result in retrieved]
@@ -153,7 +154,8 @@ def main():
             "dataset": str(Path(args.dataset)),
             "query_count": len(records),
             "document_count": len(clauses_by_document),
-            "top_k": args.top_k,
+            "requested_top_k": args.top_k,
+            "retrieval_k": retrieval_k,
             "variants": {},
         }
         for variant_name in VARIANTS:
