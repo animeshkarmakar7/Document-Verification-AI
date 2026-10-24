@@ -31,10 +31,10 @@ RAGAS_METRICS = (
     "answer_relevancy",
 )
 ABSTENTION_PATTERN = re.compile(
-    r"\\b(?:cannot answer|can't answer|unable to answer|cannot determine|"
+    r"\b(?:cannot answer|can't answer|unable to answer|cannot determine|"
     r"unable to determine|not enough information|does not specify|do not specify|"
     r"not stated|not provided|not available in (?:the )?(?:document|context|clauses)|"
-    r"not contain|no information|consult a legal professional)\\b",
+    r"not contain|no information|consult a legal professional)\b",
     re.IGNORECASE,
 )
 
@@ -96,7 +96,7 @@ def load_dataset(path):
 
 
 def normalize_text(value):
-    return re.sub(r"\\s+", " ", str(value or "").lower()).strip()
+    return re.sub(r"\s+", " ", str(value or "").lower()).strip()
 
 
 def citation_metrics(citations, expected_clause_ids, clauses):
