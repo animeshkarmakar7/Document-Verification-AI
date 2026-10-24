@@ -107,7 +107,7 @@ class SearchReranker:
                 VectorSearchResult(
                     clause_id=result.clause_id,
                     text=result.text,
-                    score=round(result.score + (0.05 * overlap_bonus), 4),
+                    score=round(result.score * (1 + (0.05 * overlap_bonus)), 6),
                     source_start=result.source_start,
                     source_end=result.source_end,
                     heading=result.heading,
@@ -203,7 +203,7 @@ class VectorStoreService:
         if self.collection is None:
             raise RuntimeError("ChromaDB collection is not initialized.")
 
-        expected_dim = encoder.get_sentence_embedding_dimension()
+        expected_dim = encoder.get_embedding_dimension()
         if expected_dim is None:
             raise RuntimeError(f"Embedding model '{self.model_name}' did not report its vector dimension.")
 
