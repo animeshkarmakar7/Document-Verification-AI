@@ -176,6 +176,52 @@ class VectorStoreService:
 
         return self.encoder
 
+    def reset_collection(self):
+        if self.chroma_client is None:
+            raise RuntimeError("ChromaDB is not available; cannot reset the evaluation collection.")
+
+        try:
+            for item in self.chroma_client.list_collections():
+                name = item if isinstance(item, str) else getattr(item, "name", None)
+                if name == "legal_document_chunks":
+                    self.chroma_client.delete_collection(name="legal_document_chunks")
+                    break
+            self.collection = self.chroma_client.get_or_create_collection(
+                name="legal_document_chunks",
+                metadata={"hnsw:space": "cosine"},
+            )
+            self.dedup_cache = ChunkDedupCache()
+        except Exception as exc:
+            raise RuntimeError(f"Unable to reset ChromaDB collection: {exc}") from exc
+
+    def validate_embedding_dimensions(self) -> int:
+        encoder = self._get_encoder()
+        if encoder is None:
+            raise RuntimeError(
+                f"Could not load embedding model '{self.model_name}'. Check the model installation and network/cache access."
+            )
+        if self.collection is None:
+            raise RuntimeError("ChromaDB collection is not initialized.")
+
+        expected_dim = encoder.get_sentence_embedding_dimension()
+        if expected_dim is None:
+            raise RuntimeError(f"Embedding model '{self.model_name}' did not report its vector dimension.")
+
+        if self.collection.count() > 0:
+            stored = self.collection.get(limit=1, include=["embeddings"])
+            embeddings = stored.get("embeddings")
+            if embeddings is None or len(embeddings) == 0:
+                raise RuntimeError("ChromaDB contains records but no stored embeddings.")
+            actual_dim = len(embeddings[0])
+            if int(actual_dim) != int(expected_dim):
+                raise RuntimeError(
+                    f"Embedding dimension mismatch: ChromaDB has {actual_dim}, "
+                    f"but model '{self.model_name}' produces {expected_dim}. "
+                    "Rebuild the evaluation index."
+                )
+
+        return int(expected_dim)
+
     def chunk_clause(self, clause: Clause) -> list[DocumentChunk]:
         """
         Splits a Clause into overlapping chunks using LangChain RecursiveCharacterTextSplitter
@@ -287,7 +333,7 @@ class VectorStoreService:
         normalized = re.sub(r"\s+", " ", chunk_text).strip().lower()
         return sha256(normalized.encode("utf-8")).hexdigest()
 
-    def index_document_clauses(self, document_id: str, clauses: list[Clause]) -> int:
+    def index_document_clauses(self, document_id: str, clauses: list[Clause], force: bool = False) -> int:
         """
         Chunks clauses and upserts their embeddings & metadata into ChromaDB.
         """
@@ -301,14 +347,21 @@ class VectorStoreService:
         if not all_chunks:
             return 0
 
-        deduped_chunks = []
-        for chunk in all_chunks:
-            if self.dedup_cache.seen_or_mark(chunk.chunk_hash):
-                continue
-            deduped_chunks.append(chunk)
+        if force:
+            deduped_chunks = all_chunks
+        else:
+            deduped_chunks = []
+            for chunk in all_chunks:
+                dedup_key = f"{document_id}:{chunk.chunk_hash}"
+                if self.dedup_cache.seen_or_mark(dedup_key):
+                    continue
+                deduped_chunks.append(chunk)
 
         if not deduped_chunks:
             return 0
+
+        if force and self.collection is None:
+            raise RuntimeError("ChromaDB collection is not initialized.")
 
         ids = [c.chunk_id for c in deduped_chunks]
         texts = [c.text for c in deduped_chunks]
@@ -316,18 +369,24 @@ class VectorStoreService:
 
         if self.collection:
             try:
-                embeddings = None
                 encoder = self._get_encoder()
-                if encoder:
-                    embeddings = encoder.encode(texts, show_progress_bar=False).tolist()
+                if force and encoder is None:
+                    raise RuntimeError(f"Could not load embedding model '{self.model_name}'.")
+                embeddings = encoder.encode(texts, show_progress_bar=False).tolist() if encoder else None
 
                 if embeddings:
                     self.collection.upsert(ids=ids, documents=texts, embeddings=embeddings, metadatas=metadatas)
+                elif force:
+                    raise RuntimeError("Forced indexing requires explicit embeddings from the configured model.")
                 else:
                     self.collection.upsert(ids=ids, documents=texts, metadatas=metadatas)
                 logger.info(f"Indexed {len(deduped_chunks)} chunks for document {document_id} into ChromaDB.")
             except Exception as e:
                 logger.error(f"Failed to upsert into ChromaDB: {e}")
+                if force:
+                    raise RuntimeError(f"Failed to index document {document_id}: {e}") from e
+        elif force:
+            raise RuntimeError("ChromaDB collection is not initialized.")
 
         return len(deduped_chunks)
 
@@ -363,7 +422,7 @@ class VectorStoreService:
         return len(deduped_chunks)
 
     def hybrid_search(
-        self, document_id: str, query: str, clauses: list[Clause], top_k: int = 3
+        self, document_id: str, query: str, clauses: list[Clause], top_k: int = 3, strict: bool = False
     ) -> list[VectorSearchResult]:
         """
         Executes hybrid semantic search (dense vector similarity + BM25 keyword matching).
@@ -412,6 +471,8 @@ class VectorStoreService:
                             )
                         )
             except Exception as e:
+                if strict:
+                    raise RuntimeError(f"ChromaDB search failed: {e}") from e
                 logger.warning(f"ChromaDB search failed: {e}. Falling back to hybrid lexical search.")
 
         sparse_results = self._sparse_keyword_search(query, clauses, top_k=top_k * 3)
