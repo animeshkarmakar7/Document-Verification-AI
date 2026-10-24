@@ -1595,3 +1595,29 @@ poetry run python backend/evaluation/run_retrieval_eval.py --dataset backend/eva
 ```
 
 Results are written to `artifacts/retrieval-evaluation/`. Report only measured values from your own labeled dataset; the evaluator does not assume that hybrid retrieval outperforms either baseline.
+
+
+## End-to-end RAG evaluation with Ragas
+
+The repository also includes an end-to-end chatbot evaluation runner using Ragas 0.4's collections-based metrics. Unlike the retrieval-only evaluator, it calls `RAGService.chat()` and evaluates actual answers and retrieved evidence. It reports Faithfulness, Context Precision, Context Recall, Answer Correctness, Answer Relevancy, citation checks, abstention accuracy, and chatbot latency.
+
+See the [evaluation guide](backend/evaluation/README.md). After pulling the changes, install the development dependencies and update the lock file:
+
+```powershell
+poetry lock
+poetry install --with dev
+```
+
+Run a three-question smoke test:
+
+```powershell
+poetry run python backend/evaluation/run_ragas_eval.py --limit 3
+```
+
+Run the full labelled dataset:
+
+```powershell
+poetry run python backend/evaluation/run_ragas_eval.py
+```
+
+The runner requires `GEMINI_API_KEY` and reference answers verified against full clause text. Results are written to `artifacts/ragas-evaluation/`. The current starter data is for checking the evaluation plumbing only; it should not be used to make production-quality accuracy claims.
