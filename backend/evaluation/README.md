@@ -47,3 +47,39 @@ The `hybrid_rrf` and `hybrid_reranked` variants use the same production hybrid-s
 Compare all variants on the same labeled queries and corpus. A higher recall means more relevant clauses were retrieved; higher MRR means the first relevant clause tends to rank earlier; higher nDCG rewards ranking highly relevant clauses near the top. Compare these gains with latency percentiles and empty-result rate.
 
 The evaluator does not claim that hybrid retrieval is better unless measured results demonstrate it. It does not measure generated-answer correctness, citation faithfulness, or full API latency; those require a separate answer-level evaluation.
+
+
+## End-to-end chatbot evaluation with Ragas
+
+The Ragas runner evaluates the actual `RAGService.chat()` path. It records the answer and retrieved contexts without adding evaluation turns to chat history, and builds an isolated ChromaDB index for the run. It does not delete or alter the application's regular vector index.
+
+Install the evaluation dependencies after pulling the repository changes:
+
+```powershell
+poetry lock
+poetry install --with dev
+```
+
+Confirm `GEMINI_API_KEY` is set in `backend/.env`. The configured Gemini model is used by LegalDocAI and, by default, by Ragas as the evaluation judge. Google Gemini embeddings are used by the embedding-dependent Ragas metrics. The evaluation judge makes additional model/API calls, so start with a small number of questions.
+
+Run a small smoke test first:
+
+```powershell
+poetry run python backend/evaluation/run_ragas_eval.py --limit 3
+```
+
+Then evaluate the full labelled dataset:
+
+```powershell
+poetry run python backend/evaluation/run_ragas_eval.py
+```
+
+The dataset must contain `reference_answer`, `answerable`, and `relevant_clause_ids` for every question. Reference answers should be checked against the full source clauses; answers drafted from short previews are not reliable ground truth. Keep both answerable and unanswerable questions in the dataset.
+
+The runner evaluates Faithfulness, Context Precision, Context Recall, Answer Correctness, and Answer Relevancy using the current Ragas collections API. Context Precision and Context Recall are not scored for unanswerable questions. It also computes deterministic citation-ID precision/recall, whether quoted citation text appears in the stored clause text, abstention accuracy, and end-to-end chatbot latency.
+
+Results are written to `artifacts/ragas-evaluation/ragas_query_results.csv` and `artifacts/ragas-evaluation/ragas_summary.json`. Review the per-question CSV alongside the aggregate JSON. A Ragas metric error is recorded per query in `metric_errors`; do not interpret a metric with too few successful scores as a valid aggregate.
+
+The current 30-row dataset covers only two documents and has draft reference answers based on an exported preview. It is suitable for checking the evaluation plumbing, not for making production accuracy claims. Verify each reference against the full clauses and build a held-out set spanning many complete contracts before reporting system performance.
+
+The judge model is currently the same configured model as the chatbot unless `--judge-model` is supplied. For stronger evaluation, use a separate capable judge model where available and manually audit a sample of Ragas judgements. Ragas scores are evaluator estimates, not legal certification.
