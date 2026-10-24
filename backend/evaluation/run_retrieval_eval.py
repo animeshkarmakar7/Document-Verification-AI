@@ -3,6 +3,7 @@ import csv
 import json
 import sys
 import time
+import tempfile
 from collections import defaultdict
 from pathlib import Path
 
@@ -92,7 +93,11 @@ def main():
         default=str(ROOT_DIR / "artifacts" / "retrieval-evaluation"),
     )
     parser.add_argument("--top-k", type=int, default=10)
-    parser.add_argument("--index-missing", action="store_true")
+    parser.add_argument(
+        "--index-missing",
+        action="store_true",
+        help="Compatibility flag; this evaluator always builds a fresh isolated index.",
+    )
     args = parser.parse_args()
 
     if args.top_k < 1:
@@ -101,7 +106,8 @@ def main():
     records = load_dataset(args.dataset)
     retrieval_k = max(args.top_k, 10)
     db = SessionLocal()
-    vector_store = VectorStoreService()
+    vector_store_directory = tempfile.mkdtemp(prefix="legaldocai-retrieval-eval-")
+    vector_store = VectorStoreService(persist_directory=vector_store_directory)
     repository = ClauseRepository(db)
     variants = RetrievalVariants(vector_store)
     clauses_by_document = {}
@@ -110,14 +116,38 @@ def main():
     query_rows = []
 
     try:
-        document_ids = {str(record["document_id"]) for record in records}
+        document_ids = list(dict.fromkeys(str(record["document_id"]) for record in records))
+        encoder = vector_store._get_encoder()
+        if encoder is None:
+            raise RuntimeError(
+                f"Could not load embedding model '{vector_store.model_name}'. "
+                "Check your Poetry environment and model download/cache."
+            )
+        encoder.encode(["retrieval evaluation warmup"], show_progress_bar=False)
+
         for document_id in document_ids:
             clauses = repository.list_by_document_id(document_id)
             if not clauses:
                 raise ValueError(f"No clauses found for document_id={document_id}")
             clauses_by_document[document_id] = clauses
-            if args.index_missing:
-                vector_store.index_document_clauses(document_id, clauses)
+            indexed_count = vector_store.index_document_clauses(document_id, clauses, force=True)
+            if indexed_count < 1:
+                raise RuntimeError(f"No chunks were indexed for document_id={document_id}")
+
+        embedding_dimension = vector_store.validate_embedding_dimensions()
+
+        for document_id in document_ids:
+            first_record = next(
+                record for record in records if str(record["document_id"]) == document_id
+            )
+            query_embedding = encoder.encode(
+                [first_record["query"]], show_progress_bar=False
+            ).tolist()
+            vector_store.collection.query(
+                query_embeddings=query_embedding,
+                where={"document_id": document_id},
+                n_results=1,
+            )
 
         for record in records:
             document_id = str(record["document_id"])
@@ -156,6 +186,9 @@ def main():
             "document_count": len(clauses_by_document),
             "requested_top_k": args.top_k,
             "retrieval_k": retrieval_k,
+            "embedding_model": vector_store.model_name,
+            "embedding_dimension": embedding_dimension,
+            "vector_store_directory": vector_store_directory,
             "variants": {},
         }
         for variant_name in VARIANTS:
