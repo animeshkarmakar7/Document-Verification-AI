@@ -553,27 +553,38 @@ class VectorStoreService:
         top_k: int,
         k: int = 60,
     ) -> list[VectorSearchResult]:
-        fused: dict[str, tuple[float, VectorSearchResult]] = {}
-
+        ranked_lists = []
         for result_set in (dense_results, sparse_results):
+            unique_results = []
+            seen_clause_ids = set()
+            for result in result_set:
+                if not result.clause_id or result.clause_id in seen_clause_ids:
+                    continue
+                seen_clause_ids.add(result.clause_id)
+                unique_results.append(result)
+            ranked_lists.append(unique_results)
+
+        fused_scores: dict[str, float] = {}
+        representatives: dict[str, VectorSearchResult] = {}
+
+        for result_set in ranked_lists:
             for rank, result in enumerate(result_set, start=1):
-                existing_score, existing_result = fused.get(
-                    result.clause_id,
-                    (0.0, result),
+                fused_scores[result.clause_id] = (
+                    fused_scores.get(result.clause_id, 0.0) + (1.0 / (k + rank))
                 )
-                best_result = result if result.score > existing_result.score else existing_result
-                fused[result.clause_id] = (
-                    existing_score + (1.0 / (k + rank)),
-                    best_result,
-                )
+                representatives.setdefault(result.clause_id, result)
+
+        for result in ranked_lists[1]:
+            representatives[result.clause_id] = result
 
         ranked = []
-        for fused_score, result in fused.values():
+        for clause_id, fused_score in fused_scores.items():
+            result = representatives[clause_id]
             ranked.append(
                 VectorSearchResult(
-                    clause_id=result.clause_id,
+                    clause_id=clause_id,
                     text=result.text,
-                    score=round(fused_score, 4),
+                    score=round(fused_score, 6),
                     source_start=result.source_start,
                     source_end=result.source_end,
                     heading=result.heading,
