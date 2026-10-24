@@ -38,6 +38,10 @@ The evaluator warms the configured embedding model and ChromaDB before timed que
 
 ## Interpretation
 
+Dense search returns chunks, while sparse search scores clauses. Reciprocal Rank Fusion now deduplicates each ranked list by `clause_id` before assigning ranks, so multiple chunks belonging to one clause do not count as multiple independent votes. When a clause is present in sparse results, the fused result keeps its full clause text for evidence display.
+
+The current starter dataset has 25 questions but only a small number of unique clause labels across two documents. Treat it as a smoke test only. Because the documents have very few clauses, Precision@5/10 and Recall@10 have limited ability to distinguish systems. Verify every gold label against the full clause text, then add more complete contracts and many unique relevant clauses before making performance claims.
+
 The `hybrid_rrf` and `hybrid_reranked` variants use the same production hybrid-search candidate generation. The lexical reranker preserves fused scores and uses lexical overlap only to break ties, so it cannot move a lower-scoring fused result above a higher-scoring one. A score tie-breaker is not a learned cross-encoder reranker; it should only be kept if held-out evaluation supports it.
 
 Compare all variants on the same labeled queries and corpus. A higher recall means more relevant clauses were retrieved; higher MRR means the first relevant clause tends to rank earlier; higher nDCG rewards ranking highly relevant clauses near the top. Compare these gains with latency percentiles and empty-result rate.
