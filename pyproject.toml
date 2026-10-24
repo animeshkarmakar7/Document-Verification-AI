@@ -47,8 +47,15 @@ dev = [
     "isort (>=8.0.1,<9.0.0)",
     "ruff (>=0.16.2,<0.17.0)",
     "httpx2 (>=2.9.1,<3.0.0)",
+    # ragas 0.4.x pulls instructor→docstring_parser 0.15 which uses ast.NameConstant,
+    # ast.Num, and ast.Str — all removed in Python 3.12+.  The fix is a one-line
+    # compatibility patch applied to docstring_parser/attrdoc.py in the virtualenv
+    # (see scripts/patch_docstring_parser.py and the CI setup step in .github/).
     "ragas (>=0.4.3,<0.5.0)",
-    "openai (>=1.0.0,<3.0.0)"
+    "openai (>=1.0.0,<3.0.0)",
+    # LangChain Gemini wrappers used by run_retrieval_ragas_eval.py to call
+    # ChatGoogleGenerativeAI (judge LLM) and GoogleGenerativeAIEmbeddings.
+    "langchain-google-genai (>=2.0.0,<3.0.0)"
 ]
 
 [tool.pytest.ini_options]

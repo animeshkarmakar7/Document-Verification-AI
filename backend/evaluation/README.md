@@ -83,3 +83,40 @@ Results are written to `artifacts/ragas-evaluation/ragas_query_results.csv` and 
 The current 30-row dataset covers only two documents and has draft reference answers based on an exported preview. It is suitable for checking the evaluation plumbing, not for making production accuracy claims. Verify each reference against the full clauses and build a held-out set spanning many complete contracts before reporting system performance.
 
 The judge model is currently the same configured model as the chatbot unless `--judge-model` is supplied. For stronger evaluation, use a separate capable judge model where available and manually audit a sample of Ragas judgements. Ragas scores are evaluator estimates, not legal certification.
+
+---
+
+## Retrieval Ragas Evaluation (Document Processing / Hybrid Retrieval Evidences)
+
+To generate concrete empirical evidence comparing all 4 retrieval techniques (`dense_only`, `bm25_only`, `hybrid_rrf`, and production `hybrid_reranked`) on both deterministic IR metrics and LLM-judged RAGAS retrieval metrics without requiring chatbot generation:
+
+```powershell
+# Quick IR-only run (deterministic metrics, no LLM API calls, instant):
+poetry run python backend/evaluation/run_retrieval_ragas_eval.py --skip-ragas
+
+# Complete run with Ragas Context Precision & Context Recall (using Gemini judge):
+poetry run python backend/evaluation/run_retrieval_ragas_eval.py --limit 5
+
+# Full dataset run:
+poetry run python backend/evaluation/run_retrieval_ragas_eval.py
+```
+
+### Metrics Reported as Empirical Evidence
+
+| Metric | Source | What it Measures |
+|---|---|---|
+| **Context Precision** | Ragas / LLM | Signal-to-noise ratio in retrieved text; rewards placing relevant information at higher ranks. |
+| **Context Recall** | Ragas / LLM | Coverage of ground-truth reference answer facts by the retrieved context. |
+| **MRR@10** | Deterministic IR | Mean Reciprocal Rank (1/rank) of the first relevant clause retrieved. |
+| **nDCG@10** | Deterministic IR | Position-discounted cumulative gain for graded legal relevance. |
+| **Recall@5 / Recall@10** | Deterministic IR | Proportion of all relevant clauses captured in top-K results. |
+| **HitRate@5** | Deterministic IR | Binary indication of whether at least one relevant clause was returned in top-5. |
+| **Retrieval Latency (p50/p95/p99)** | System | Micro-benchmarked retrieval latency in milliseconds. |
+
+### Production Reliability Features Built-in
+
+1. **Context Deduplication & Caching**: When variants (e.g. `hybrid_rrf` vs `hybrid_reranked`) retrieve identical contexts for a query, the LLM evaluation is cached and reused, reducing LLM API consumption by up to 75%.
+2. **Adaptive 429 Rate-Limit Backoff**: Automatically reads `Retry-After` headers and applies exponential backoff when encountering Google AI Studio API rate limits.
+3. **Isolated Evaluation Index**: Each run builds an isolated temporary ChromaDB collection without impacting the production vector store.
+4. **Environment Compatibility Patch**: Run `poetry run python backend/scripts/patch_environment.py` if installing on Python 3.12+ (Python 3.14).
+
