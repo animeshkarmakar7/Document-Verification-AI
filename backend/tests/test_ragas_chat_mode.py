@@ -1,8 +1,21 @@
 from unittest.mock import MagicMock
 
+import pytest
+
+from app.services import rag_service as rag_service_module
+
 from app.models.clause import Clause
 from app.services.rag_service import RAGService
 from app.services.vector_store_service import VectorSearchResult
+
+
+@pytest.fixture(autouse=True)
+def disable_gemini_pacing(monkeypatch):
+    monkeypatch.setattr(
+        rag_service_module,
+        "wait_for_gemini_request",
+        lambda: None,
+    )
 
 
 def test_rag_chat_evaluation_mode_returns_context_without_persisting_messages():
@@ -31,7 +44,6 @@ def test_rag_chat_evaluation_mode_returns_context_without_persisting_messages():
     client.models.generate_content.return_value.text = (
         '{"answer": "The security deposit is INR 96,000.", "confidence": 0.9, '
         '"citations": [{"clause_id": "doc-1-clause-0001", '
-        '"source_span_start": 0, "source_span_end": 65, '
         '"quoted_text": "The Tenant shall pay a refundable security deposit of INR 96,000."}]}'
     )
 

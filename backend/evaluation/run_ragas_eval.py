@@ -19,6 +19,7 @@ from app.config.settings import settings
 from app.database.database import SessionLocal
 from app.repositories.clause_repository import ClauseRepository
 from app.services.rag_service import RAGService
+from app.services.gemini_rate_limiter import create_gemini_async_http_client
 from app.services.vector_store_service import VectorStoreService
 from evaluation.metrics import evaluate_query, percentile, summarize
 
@@ -265,6 +266,7 @@ async def run_evaluation(args):
     openai_compatible_client = AsyncOpenAI(
         api_key=settings.GEMINI_API_KEY,
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        http_client=create_gemini_async_http_client(),
     )
     judge_llm = llm_factory(
         judge_model,
@@ -502,6 +504,7 @@ async def run_evaluation(args):
 
     finally:
         db.close()
+        await openai_compatible_client.close()
 
     output_dir = Path(args.output_dir)
     summary = {
@@ -516,6 +519,7 @@ async def run_evaluation(args):
         "rrf_k": settings.RRF_K,
         "reranker_model": settings.RERANKER_MODEL,
         "chat_model": settings.GEMINI_MODEL,
+        "gemini_min_request_interval_seconds": settings.GEMINI_MIN_REQUEST_INTERVAL_SECONDS,
         "judge_model": judge_model,
         "judge_embedding_model": embedding_model,
         "ragas_version_range": ">=0.4.3,<0.5.0",

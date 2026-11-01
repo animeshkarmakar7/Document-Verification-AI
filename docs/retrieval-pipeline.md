@@ -58,6 +58,8 @@ The chat retrieval path does not silently switch to a different search method.
 - Gemini is the only generation provider for this RAG chat path. Provider failover is not used.
 - An empty retrieved set produces an explicit abstention with no citations. It does not fabricate retrieval evidence.
 - A Gemini, retrieval, embedding, or reranker error is surfaced to the caller rather than replaced with a synthetic answer.
+- Gemini returns clause IDs and verbatim quotes only; the application resolves quotes to exact source offsets and rejects evidence not found in the retrieved chunks.
+- Gemini generation and RAGAS judge requests are paced by a shared in-process limiter. A distributed limiter is required when multiple workers share one API project quota.
 
 The separate application-wide LLM router may still be used by unrelated classification or explanation services; the document-chat RAG path does not invoke it.
 
@@ -78,6 +80,7 @@ The separate application-wide LLM router may still be used by unrelated classifi
 | Cross-encoder | cross-encoder/ms-marco-MiniLM-L6-v2 |
 | Cross-encoder batch size | 16 |
 | Final context count | 5 |
+| Gemini request interval | 12.5 seconds by default; configurable per API project quota |
 | Generator | Configured Gemini model |
 
 Settings can be overridden through the application's environment configuration. Changing the embedding model requires rebuilding the relevant ChromaDB index with that same model and dimension.

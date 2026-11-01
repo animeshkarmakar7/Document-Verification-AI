@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.6-flash"
     GEMINI_CLASSIFICATION_BATCH_SIZE: int = 10
+    GEMINI_MIN_REQUEST_INTERVAL_SECONDS: float = 12.5
 
     # Groq / LLaMA3 fallback LLM (free tier at console.groq.com)
     GROQ_API_KEY: str = ""
