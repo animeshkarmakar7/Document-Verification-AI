@@ -1,10 +1,7 @@
-import logging
 from dataclasses import dataclass
 
 from app.models.clause import Clause
-from app.services.vector_store_service import VectorStoreService, VectorSearchResult
-
-logger = logging.getLogger(__name__)
+from app.services.vector_store_service import VectorStoreService
 
 
 @dataclass
@@ -22,30 +19,29 @@ class ClauseEmbeddingService:
     ) -> list[SearchResult]:
         if not clauses:
             return []
+        if top_k < 1:
+            raise ValueError("top_k must be positive.")
 
-        doc_id = clauses[0].document_id if clauses else ""
-
-        # Index clauses if document_id available
-        if doc_id:
-            try:
-                self.vector_store.index_document_clauses(doc_id, clauses)
-            except Exception as e:
-                logger.warning(f"Vector indexing failed during search: {e}")
-
-        # Execute hybrid vector search
-        v_results = self.vector_store.hybrid_search(
-            document_id=doc_id, query=query, clauses=clauses, top_k=top_k
+        document_id = clauses[0].document_id
+        self.vector_store.index_document_clauses(
+            document_id,
+            clauses,
         )
-
-        clause_map = {c.clause_id: c for c in clauses}
+        retrieved = self.vector_store.hybrid_search(
+            document_id=document_id,
+            query=query,
+            clauses=clauses,
+            top_k=top_k,
+        )
+        clause_by_id = {clause.clause_id: clause for clause in clauses}
         results = []
-        for vr in v_results:
-            c_obj = clause_map.get(vr.clause_id)
-            if c_obj:
-                results.append(SearchResult(clause=c_obj, score=vr.score))
+        seen_clause_ids = set()
 
-        # Fallback if no matching clause objects found
-        if not results:
-            results = [SearchResult(clause=c, score=0.5) for c in clauses[:top_k]]
+        for item in retrieved:
+            clause = clause_by_id.get(item.clause_id)
+            if clause is None or clause.clause_id in seen_clause_ids:
+                continue
+            seen_clause_ids.add(clause.clause_id)
+            results.append(SearchResult(clause=clause, score=item.score))
 
         return results

@@ -46,5 +46,8 @@ def test_percentile_interpolates():
 
 def test_evaluate_query_contains_expected_metrics():
     result = evaluate_query(["a", "x"], ["a"])
+    assert result["recall@1"] == 1.0
     assert result["recall@5"] == 1.0
+    assert result["mrr@5"] == 1.0
+    assert result["ndcg@5"] == 1.0
     assert result["mrr@10"] == 1.0

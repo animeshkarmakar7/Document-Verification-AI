@@ -22,6 +22,7 @@ from app.schemas.ingestion import (
 )
 from app.services.ocr_service import OCRService
 from app.services.kafka_service import IngestionJobPayload, KafkaEventPublisher
+from app.config.settings import settings
 from app.services.rag_service import RAGService
 from app.services.risk_service import RiskService
 from app.services.upload_service import UploadService
@@ -232,7 +233,12 @@ class DocumentCommandHandler:
             force=force,
         )
 
-    def chat_with_document(self, document_id: str, query: str, top_k: int = 4):
+    def chat_with_document(
+        self,
+        document_id: str,
+        query: str,
+        top_k: int = settings.RETRIEVAL_FINAL_K,
+    ):
         return RAGService(db=self.db).chat(
             document_id=document_id,
             query=query,

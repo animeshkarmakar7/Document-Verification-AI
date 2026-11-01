@@ -54,12 +54,21 @@ def summarize(values):
 def evaluate_query(retrieved_ids, relevant_ids, relevance=None):
     relevance = relevance or {item: 1 for item in relevant_ids}
     return {
+        "recall@1": recall_at_k(retrieved_ids, relevant_ids, 1),
+        "recall@3": recall_at_k(retrieved_ids, relevant_ids, 3),
         "recall@5": recall_at_k(retrieved_ids, relevant_ids, 5),
         "recall@10": recall_at_k(retrieved_ids, relevant_ids, 10),
+        "precision@1": precision_at_k(retrieved_ids, relevant_ids, 1),
+        "precision@3": precision_at_k(retrieved_ids, relevant_ids, 3),
         "precision@5": precision_at_k(retrieved_ids, relevant_ids, 5),
         "precision@10": precision_at_k(retrieved_ids, relevant_ids, 10),
+        "hit_rate@1": hit_rate_at_k(retrieved_ids, relevant_ids, 1),
+        "hit_rate@3": hit_rate_at_k(retrieved_ids, relevant_ids, 3),
         "hit_rate@5": hit_rate_at_k(retrieved_ids, relevant_ids, 5),
+        "hit_rate@10": hit_rate_at_k(retrieved_ids, relevant_ids, 10),
+        "mrr@5": reciprocal_rank_at_k(retrieved_ids, relevant_ids, 5),
         "mrr@10": reciprocal_rank_at_k(retrieved_ids, relevant_ids, 10),
+        "ndcg@5": ndcg_at_k(retrieved_ids, relevance, 5),
         "ndcg@10": ndcg_at_k(retrieved_ids, relevance, 10),
     }
 

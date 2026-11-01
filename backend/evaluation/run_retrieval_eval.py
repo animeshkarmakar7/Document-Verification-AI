@@ -140,8 +140,14 @@ def main():
             first_record = next(
                 record for record in records if str(record["document_id"]) == document_id
             )
+            query_instruction = settings.EMBEDDING_QUERY_INSTRUCTION.strip()
+            query_text = (
+                f"{query_instruction} {first_record['query']}"
+                if query_instruction
+                else first_record["query"]
+            )
             query_embedding = encoder.encode(
-                [first_record["query"]], show_progress_bar=False
+                [query_text], show_progress_bar=False
             ).tolist()
             vector_store.collection.query(
                 query_embeddings=query_embedding,
@@ -161,7 +167,11 @@ def main():
                     document_id, record["query"], clauses, retrieval_k
                 )
                 elapsed_ms = (time.perf_counter() - started) * 1000
-                retrieved_ids = [result.clause_id for result in retrieved]
+                retrieved_ids = list(
+                    dict.fromkeys(
+                        result.clause_id for result in retrieved if result.clause_id
+                    )
+                )
                 latencies[variant_name].append(elapsed_ms)
                 scores = evaluate_query(retrieved_ids, relevant, relevance)
                 for metric, value in scores.items():
@@ -187,6 +197,10 @@ def main():
             "requested_top_k": args.top_k,
             "retrieval_k": retrieval_k,
             "embedding_model": vector_store.model_name,
+            "embedding_query_instruction": settings.EMBEDDING_QUERY_INSTRUCTION,
+            "reranker_model": settings.RERANKER_MODEL,
+            "candidate_k_per_retriever": settings.RETRIEVAL_CANDIDATE_K,
+            "rrf_k": settings.RRF_K,
             "embedding_dimension": embedding_dimension,
             "vector_store_directory": vector_store_directory,
             "variants": {},

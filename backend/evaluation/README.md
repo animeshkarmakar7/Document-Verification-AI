@@ -1,122 +1,242 @@
-# Retrieval evaluation
+# Retrieval and RAGAS Evaluation
 
-The evaluator compares dense-only retrieval, BM25-style sparse retrieval, RRF fusion without the final reranker, and the current hybrid retrieval method. It reports ranking quality and retrieval latency against a manually labeled JSONL dataset.
+LegalDoc AI evaluates retrieval quality separately from answer generation and also provides an end-to-end evaluation of the production document-chat path.
 
-## Dataset format
+## Production retrieval pipeline
 
-Create `backend/evaluation/datasets/retrieval_gold.jsonl`. Keep one JSON object per line.
+The document-chat path is:
 
-A binary relevance record:
+~~~text
+User query + document_id
+            |
+            +---------------------------+
+            |                           |
+            v                           v
+Dense retrieval                   BM25 retrieval
+BGE-large-en-v1.5                 BM25 Okapi
+ChromaDB cosine                   Same structure-aware chunks
+Top 20 chunk candidates           Top 20 chunk candidates
+            |                           |
+            +-------------+-------------+
+                          |
+                          v
+                 Reciprocal Rank Fusion
+                 RRF constant = 60
+                 Fusion key: chunk_id
+                 Top 20 fused candidates
+                          |
+                          v
+                  Cross-Encoder
+          cross-encoder/ms-marco-MiniLM-L6-v2
+                          |
+                          v
+                 Final Top 5 chunks
+                          |
+                          v
+                 Evidence assembly
+              Chunk ID, clause ID, source span
+                          |
+                          v
+               Gemini structured generation
+                          |
+                          v
+                Grounded answer + citations
+~~~
 
-```json
-{"query_id":"q001","document_id":"REAL_DOCUMENT_ID","query":"What is the termination notice period?","relevant_clause_ids":["REAL_CLAUSE_ID"],"answerable":true}
-```
+Dense and sparse retrieval both run over the same chunk representation. RRF is performed at chunk level using stable `chunk_id` values. It does not merge distinct chunks from a clause into one clause-level result. The cross-encoder scores every fused candidate and orders the final five evidence chunks.
 
-A graded relevance record:
+The configured BGE model receives the retrieval instruction on the query embedding only. Document chunks are embedded without that query prefix. Chroma collection names include the embedding-model identifier, and collection metadata is checked against the configured model before the collection is used.
 
-```json
-{"query_id":"q002","document_id":"REAL_DOCUMENT_ID","query":"What happens after a late payment?","relevance":{"CLAUSE_ID_A":3,"CLAUSE_ID_B":1},"answerable":true}
-```
+The cross-encoder's raw scores are ranking logits, not calibrated probabilities. They must not be interpreted as answer confidence.
 
-Use actual document and clause IDs from the database. A grade of 3 means highly relevant, 2 means relevant, 1 means partially relevant, and 0 means not relevant. Do not add unsupported or guessed labels. For an unanswerable question, use an empty `relevant_clause_ids` list and set `answerable` to false.
+## Strict failure policy
 
-The dataset must be manually reviewed. Split development and held-out test questions before tuning retrieval parameters. Use a range of semantic paraphrases, exact legal terms, clause references, dates and amounts, multi-clause questions, and unanswerable questions.
+The production document-chat retrieval path does not silently degrade to a different algorithm.
 
-## Run
+- ChromaDB must initialize and the configured collection must be available.
+- Sentence Transformers and the configured BGE model must load successfully.
+- Dense queries use explicit embeddings; ChromaDB's implicit text embedding is not used.
+- BM25 returns only positive-scoring candidates.
+- Both retrievers are invoked for every non-empty query.
+- RRF requires chunk IDs and raises on malformed candidates.
+- The cross-encoder must score every fused candidate; its load and inference errors propagate.
+- Indexing requires the configured embedding model and explicit embeddings.
+- Chunking must preserve source offsets; chunks that cannot be mapped back to source text raise an error.
+- Gemini is the generation provider for this RAG path. Gemini errors are surfaced rather than replaced by synthetic clause summaries.
+- Empty retrieval produces an explicit abstention with no citations. It is not replaced by fabricated candidates.
 
-From the repository root with dependencies and the database configured:
+The application-wide LLM router may remain in use by unrelated classification or explanation services. The document-chat RAG path does not use provider failover.
 
-```bash
-poetry run python backend/evaluation/run_retrieval_eval.py --dataset backend/evaluation/datasets/retrieval_gold.jsonl
-```
+## Configuration
 
-The evaluator uses PostgreSQL for clause text and IDs and creates a fresh, isolated ChromaDB directory for each run. It does not delete or modify the application's configured ChromaDB collection. Every dataset document is indexed with the configured embedding model before evaluation. The evaluator validates embedding dimensions and stops if indexing fails or if the stored vectors do not match the model.
+The following settings are in `backend/app/config/settings.py` and `backend/.env.example`.
 
-Outputs are written to `artifacts/retrieval-evaluation/retrieval_query_results.csv` and `artifacts/retrieval-evaluation/retrieval_summary.json`. The CSV contains per-query results and latency. The JSON contains aggregate Recall@5/10, Precision@5/10, Hit Rate@5, MRR@10, nDCG@10, p50/p95/p99 retrieval latency, and empty-result rate.
+| Setting | Default |
+|---|---|
+| `EMBEDDING_MODEL` | `BAAI/bge-large-en-v1.5` |
+| `EMBEDDING_QUERY_INSTRUCTION` | `Represent this sentence for searching relevant passages:` |
+| `RERANKER_MODEL` | `cross-encoder/ms-marco-MiniLM-L6-v2` |
+| `RERANKER_BATCH_SIZE` | `16` |
+| `RETRIEVAL_CANDIDATE_K` | `20` |
+| `RETRIEVAL_FINAL_K` | `5` |
+| `RRF_K` | `60` |
+| `VECTOR_STORE_DIRECTORY` | `.chroma_db` |
 
-The evaluator warms the configured embedding model and ChromaDB before timed queries, so reported retrieval latency excludes initial model loading and initial vector-store access. It includes query embedding and retrieval work. With only a few questions, p95 and p99 are unstable; use at least 50–100 manually verified questions and repeat runs on the target deployment environment for representative latency. Because each run uses an isolated index, these results do not modify or replace the live application's index.
+A change to `EMBEDDING_MODEL` creates a separate model-namespaced Chroma collection. It does not reuse vectors from a different embedding model. Re-index the documents using the newly configured model before serving queries.
 
-## Interpretation
+## Gold dataset
 
-Dense search returns chunks, while sparse search scores clauses. Reciprocal Rank Fusion now deduplicates each ranked list by `clause_id` before assigning ranks, so multiple chunks belonging to one clause do not count as multiple independent votes. When a clause is present in sparse results, the fused result keeps its full clause text for evidence display.
+Create or update:
 
-The current starter dataset has 25 questions but only a small number of unique clause labels across two documents. Treat it as a smoke test only. Because the documents have very few clauses, Precision@5/10 and Recall@10 have limited ability to distinguish systems. Verify every gold label against the full clause text, then add more complete contracts and many unique relevant clauses before making performance claims.
+`backend/evaluation/datasets/retrieval_gold.jsonl`
 
-The `hybrid_rrf` and `hybrid_reranked` variants use the same production hybrid-search candidate generation. The lexical reranker preserves fused scores and uses lexical overlap only to break ties, so it cannot move a lower-scoring fused result above a higher-scoring one. A score tie-breaker is not a learned cross-encoder reranker; it should only be kept if held-out evaluation supports it.
+Each line is one independently verified query record. Use real document and clause IDs from PostgreSQL.
 
-Compare all variants on the same labeled queries and corpus. A higher recall means more relevant clauses were retrieved; higher MRR means the first relevant clause tends to rank earlier; higher nDCG rewards ranking highly relevant clauses near the top. Compare these gains with latency percentiles and empty-result rate.
+Binary relevance example:
 
-The evaluator does not claim that hybrid retrieval is better unless measured results demonstrate it. It does not measure generated-answer correctness, citation faithfulness, or full API latency; those require a separate answer-level evaluation.
+~~~json
+{"query_id":"q001","document_id":"REAL_DOCUMENT_ID","query":"What is the termination notice period?","relevant_clause_ids":["REAL_CLAUSE_ID"],"answerable":true,"reference_answer":"The agreement requires 30 days written notice."}
+~~~
 
+Graded relevance example:
 
-## End-to-end chatbot evaluation with Ragas
+~~~json
+{"query_id":"q002","document_id":"REAL_DOCUMENT_ID","query":"What happens after late payment?","relevance":{"CLAUSE_ID_A":3,"CLAUSE_ID_B":1},"answerable":true,"reference_answer":"The agreement defines a late-payment charge and a notice process."}
+~~~
 
-The Ragas runner evaluates the actual `RAGService.chat()` path. It records the answer and retrieved contexts without adding evaluation turns to chat history, and builds an isolated ChromaDB index for the run. It does not delete or alter the application's regular vector index.
+For answerable questions, supply one or more relevant clause IDs and a checked reference answer. For unanswerable questions, set `answerable` to false, provide an empty `relevant_clause_ids` list, and use a reference answer that clearly states what the document does not establish. The evaluation scripts reject inconsistent answerability labels.
 
-Install the evaluation dependencies after pulling the repository changes:
+Use manually reviewed labels. Include semantic paraphrases, exact legal terminology, dates, amounts, section names, multi-clause questions, and unanswerable questions. Split development and held-out test queries before tuning settings. The starter dataset is a smoke-test set, not enough evidence for production accuracy claims.
 
-```powershell
+## 1. Retrieval comparison with RAGAS
+
+This compares four retrieval variants using the same chunking and corpus:
+
+- `dense_only`
+- `bm25_only`
+- `hybrid_rrf`
+- `hybrid_reranked`
+
+The hybrid RRF variant uses Top-20 from each first-stage retriever, RRF Top-20, and returns the Top-5 fused chunks. The hybrid-reranked variant adds cross-encoder scoring and returns the final Top-5 chunks. Dense-only and BM25-only return their own Top-5 rankings.
+
+Run all variants with RAGAS Context Precision and Context Recall:
+
+~~~bash
+poetry run python backend/evaluation/run_retrieval_ragas_eval.py --top-k 5
+~~~
+
+Run deterministic IR metrics only:
+
+~~~bash
+poetry run python backend/evaluation/run_retrieval_ragas_eval.py --top-k 5 --skip-ragas
+~~~
+
+Run a small judge smoke test:
+
+~~~bash
+poetry run python backend/evaluation/run_retrieval_ragas_eval.py --top-k 5 --limit 5
+~~~
+
+RAGAS judge execution requires `GEMINI_API_KEY`. The `--skip-ragas` mode does not make a retrieval fallback; it skips judge calls and computes deterministic IR metrics only.
+
+Outputs are written to:
+
+- `artifacts/retrieval-ragas-evaluation/retrieval_ragas_query_results.csv`
+- `artifacts/retrieval-ragas-evaluation/retrieval_ragas_summary.json`
+
+### Retrieval metrics
+
+| Metric | Meaning |
+|---|---|
+| Recall@1, @3, @5 | Fraction of relevant clauses found in the first K results |
+| Precision@1, @3, @5 | Fraction of the first K returned clauses that are relevant |
+| Hit Rate@1, @3, @5 | Whether at least one relevant clause appears in the first K |
+| MRR@5 | Reciprocal rank of the first relevant clause, averaged across queries |
+| nDCG@5 | Ranking quality using graded clause relevance |
+| Context Precision | RAGAS assessment of relevant context ordering and noise |
+| Context Recall | RAGAS assessment of how much reference information the retrieved context contains |
+| P50/P95/P99 latency | Retrieval latency percentiles for each variant |
+| Empty-result rate | Fraction of queries with no returned evidence |
+| Unanswerable non-empty rate | Fraction of unanswerable queries for which a variant still returns candidate evidence |
+
+Retrieval IR metrics are computed at clause level because the gold labels are clause IDs. Multiple returned chunks from the same clause count once for clause-level ranking. Original chunk texts remain intact for RAGAS context evaluation. Unanswerable questions are excluded from answerable-query recall and precision aggregation and are reported separately.
+
+Metric coverage is included in the JSON summary. Failed RAGAS calls are recorded as errors and are not converted into zero-valued judge scores.
+
+## 2. End-to-end RAGAS evaluation
+
+This runner calls the actual production `RAGService.chat()` path. It evaluates:
+
+- Dense retrieval
+- BM25 retrieval
+- RRF fusion
+- Cross-encoder reranking
+- Context assembly
+- Gemini structured answer generation
+- Citation validation
+
+The script builds an isolated temporary ChromaDB index for the evaluation run, indexes the dataset documents with the configured BGE model, and does not persist evaluation chat messages.
+
+Run a small smoke test:
+
+~~~bash
+poetry run python backend/evaluation/run_ragas_eval.py --top-k 5 --candidate-k 20 --limit 3
+~~~
+
+Run the complete labelled dataset:
+
+~~~bash
+poetry run python backend/evaluation/run_ragas_eval.py --top-k 5 --candidate-k 20
+~~~
+
+Outputs are written to:
+
+- `artifacts/ragas-evaluation/ragas_query_results.csv`
+- `artifacts/ragas-evaluation/ragas_summary.json`
+
+### End-to-end metrics
+
+| Metric | Meaning |
+|---|---|
+| Faithfulness | Whether answer claims are supported by retrieved context |
+| Answer Relevancy | Whether the generated answer addresses the user's question |
+| Answer Correctness | Semantic correctness against the reference answer |
+| Context Precision | Relevance and ordering quality of retrieved evidence |
+| Context Recall | Coverage of reference answer information by retrieved evidence |
+| Recall@5, Precision@5, Hit Rate@5 | Deterministic clause-level retrieval quality |
+| MRR@5, nDCG@5 | Clause ranking quality |
+| Citation Precision/Recall | Alignment between predicted citations and gold relevant clauses |
+| Citation Quote Match Rate | Whether quoted source evidence occurs in its clause |
+| Citation Validity Rate | Whether citation clause IDs exist in the document |
+| Citation Span Accuracy | Whether the quoted text matches the exact cited source span |
+| Abstention Accuracy | Whether the system abstains on unanswerable questions |
+| P50/P95/P99 chat latency | Retrieval plus Gemini answer-generation latency |
+
+For each RAGAS metric the summary includes scored queries, eligible queries, and metric coverage. Failed judge calls are kept in query-level `metric_errors`, not silently imputed.
+
+## 3. Legacy deterministic evaluator
+
+The original IR-only evaluator remains available for compatibility:
+
+~~~bash
+poetry run python backend/evaluation/run_retrieval_eval.py --top-k 10
+~~~
+
+It compares the same four retriever variants and reports Recall@5/10, Precision@5/10, Hit Rate@5, MRR@10, nDCG@10, latency percentiles, and empty-result rate. Its output directory is `artifacts/retrieval-evaluation/`.
+
+For new experiments, prefer `run_retrieval_ragas_eval.py`, which adds RAGAS judge metrics, Top-1/3/5 metrics, metric coverage, and unanswerable-query diagnostics.
+
+## Environment and reproducibility
+
+Install the development and evaluation dependencies:
+
+~~~bash
 poetry lock
 poetry install --with dev
-```
+~~~
 
-Confirm `GEMINI_API_KEY` is set in `backend/.env`. The configured Gemini model is used by LegalDocAI and, by default, by Ragas as the evaluation judge. Google Gemini embeddings are used by the embedding-dependent Ragas metrics. The evaluation judge makes additional model/API calls, so start with a small number of questions.
+Set `GEMINI_API_KEY` and the retrieval settings in `backend/.env`. Before running the evaluations, ensure PostgreSQL contains the labelled documents and clauses. Evaluation creates temporary vector-store directories and will download configured Sentence Transformers models if they are not already cached.
 
-Run a small smoke test first:
+Record the dataset version, embedding model, query instruction, cross-encoder model, Gemini model, RAGAS version, environment, and evaluator arguments with each experiment. Warm models before benchmarking latency. Repeat runs under the target deployment environment and inspect the per-query CSV; aggregate metrics alone can hide failures on dates, amounts, negations, exceptions, and multi-clause questions.
 
-```powershell
-poetry run python backend/evaluation/run_ragas_eval.py --limit 3
-```
-
-Then evaluate the full labelled dataset:
-
-```powershell
-poetry run python backend/evaluation/run_ragas_eval.py
-```
-
-The dataset must contain `reference_answer`, `answerable`, and `relevant_clause_ids` for every question. Reference answers should be checked against the full source clauses; answers drafted from short previews are not reliable ground truth. Keep both answerable and unanswerable questions in the dataset.
-
-The runner evaluates Faithfulness, Context Precision, Context Recall, Answer Correctness, and Answer Relevancy using the current Ragas collections API. Context Precision and Context Recall are not scored for unanswerable questions. It also computes deterministic citation-ID precision/recall, whether quoted citation text appears in the stored clause text, abstention accuracy, and end-to-end chatbot latency.
-
-Results are written to `artifacts/ragas-evaluation/ragas_query_results.csv` and `artifacts/ragas-evaluation/ragas_summary.json`. Review the per-question CSV alongside the aggregate JSON. A Ragas metric error is recorded per query in `metric_errors`; do not interpret a metric with too few successful scores as a valid aggregate.
-
-The current 30-row dataset covers only two documents and has draft reference answers based on an exported preview. It is suitable for checking the evaluation plumbing, not for making production accuracy claims. Verify each reference against the full clauses and build a held-out set spanning many complete contracts before reporting system performance.
-
-The judge model is currently the same configured model as the chatbot unless `--judge-model` is supplied. For stronger evaluation, use a separate capable judge model where available and manually audit a sample of Ragas judgements. Ragas scores are evaluator estimates, not legal certification.
-
----
-
-## Retrieval Ragas Evaluation (Document Processing / Hybrid Retrieval Evidences)
-
-To generate concrete empirical evidence comparing all 4 retrieval techniques (`dense_only`, `bm25_only`, `hybrid_rrf`, and production `hybrid_reranked`) on both deterministic IR metrics and LLM-judged RAGAS retrieval metrics without requiring chatbot generation:
-
-```powershell
-# Quick IR-only run (deterministic metrics, no LLM API calls, instant):
-poetry run python backend/evaluation/run_retrieval_ragas_eval.py --skip-ragas
-
-# Complete run with Ragas Context Precision & Context Recall (using Gemini judge):
-poetry run python backend/evaluation/run_retrieval_ragas_eval.py --limit 5
-
-# Full dataset run:
-poetry run python backend/evaluation/run_retrieval_ragas_eval.py
-```
-
-### Metrics Reported as Empirical Evidence
-
-| Metric | Source | What it Measures |
-|---|---|---|
-| **Context Precision** | Ragas / LLM | Signal-to-noise ratio in retrieved text; rewards placing relevant information at higher ranks. |
-| **Context Recall** | Ragas / LLM | Coverage of ground-truth reference answer facts by the retrieved context. |
-| **MRR@10** | Deterministic IR | Mean Reciprocal Rank (1/rank) of the first relevant clause retrieved. |
-| **nDCG@10** | Deterministic IR | Position-discounted cumulative gain for graded legal relevance. |
-| **Recall@5 / Recall@10** | Deterministic IR | Proportion of all relevant clauses captured in top-K results. |
-| **HitRate@5** | Deterministic IR | Binary indication of whether at least one relevant clause was returned in top-5. |
-| **Retrieval Latency (p50/p95/p99)** | System | Micro-benchmarked retrieval latency in milliseconds. |
-
-### Production Reliability Features Built-in
-
-1. **Context Deduplication & Caching**: When variants (e.g. `hybrid_rrf` vs `hybrid_reranked`) retrieve identical contexts for a query, the LLM evaluation is cached and reused, reducing LLM API consumption by up to 75%.
-2. **Adaptive 429 Rate-Limit Backoff**: Automatically reads `Retry-After` headers and applies exponential backoff when encountering Google AI Studio API rate limits.
-3. **Isolated Evaluation Index**: Each run builds an isolated temporary ChromaDB collection without impacting the production vector store.
-4. **Environment Compatibility Patch**: Run `poetry run python backend/scripts/patch_environment.py` if installing on Python 3.12+ (Python 3.14).
-
+Do not report results from the starter dataset as production accuracy. Review gold labels against complete source clauses and maintain a held-out test set. RAGAS scores are evaluation estimates, not legal certification.

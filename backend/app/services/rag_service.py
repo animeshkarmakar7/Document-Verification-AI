@@ -1,5 +1,4 @@
-import json
-import logging
+from typing import Any
 from google import genai
 from google.genai import types
 from pydantic import BaseModel, Field
@@ -13,11 +12,6 @@ from app.repositories.document_repository import DocumentRepository
 from app.services.vector_store_service import VectorStoreService, VectorSearchResult
 from sqlalchemy.orm import Session
 
-from app.services.llm_router import LLMRouter, LLMUnavailableError
-
-logger = logging.getLogger(__name__)
-
-SIMILARITY_THRESHOLD = 0.05
 
 
 class RAGServiceError(Exception):
@@ -49,7 +43,7 @@ class RAGService:
         api_key: str | None = None,
         model_name: str | None = None,
         vector_store: VectorStoreService | None = None,
-        router: LLMRouter | None = None,
+        client: Any = None,
     ):
         self.db = db
         self.doc_repo = DocumentRepository(db)
@@ -58,24 +52,16 @@ class RAGService:
         self.vector_store = vector_store or VectorStoreService()
         self.api_key = api_key if api_key is not None else settings.GEMINI_API_KEY
         self.model_name = model_name or settings.GEMINI_MODEL
-        self.router = router or LLMRouter(
-            gemini_api_key=self.api_key,
-            gemini_model=self.model_name,
+        self.client = client or (
+            genai.Client(api_key=self.api_key) if self.api_key else None
         )
-
-    @property
-    def client(self):
-        return self.router.gemini_client
-
-    @client.setter
-    def client(self, value):
-        self.router.gemini_client = value
 
     def chat(
         self,
         document_id: str,
         query: str,
-        top_k: int = 4,
+        top_k: int = settings.RETRIEVAL_FINAL_K,
+        candidate_k: int = settings.RETRIEVAL_CANDIDATE_K,
         *,
         persist_messages: bool = True,
         include_evaluation_details: bool = False,
@@ -120,30 +106,35 @@ class RAGService:
             return result
 
         if index_document:
-            try:
-                self.vector_store.index_document_clauses(document_id, clauses)
-            except Exception as e:
-                logger.warning(f"Vector store indexing skipped during chat: {e}")
+            self.vector_store.index_document_clauses(
+                document_id,
+                clauses,
+            )
 
-        search_results = self.vector_store.hybrid_search(
-            document_id=document_id, query=query, clauses=clauses, top_k=top_k
+        search_results, retrieval_trace = self.vector_store.hybrid_search_with_trace(
+            document_id=document_id,
+            query=query,
+            clauses=clauses,
+            top_k=top_k,
+            candidate_k=candidate_k,
+            apply_reranker=True,
         )
 
-        best_score = search_results[0].score if search_results else 0.0
         if persist_messages:
             self.chat_repo.create(ChatMessage(document_id=document_id, role="user", content=query))
 
-        if not self.client or not search_results:
-            generation_mode = "fallback_no_client" if not self.client else "fallback_no_results"
-            answer_data = self._generate_fallback(query, search_results, best_score)
+        if not search_results:
+            answer_data = GroundedAnswerBatch(
+                answer="The available document clauses do not provide sufficient evidence to answer this question.",
+                confidence=0.0,
+                citations=[],
+            )
+            generation_mode = "no_retrieved_context"
         else:
-            try:
-                answer_data = self._generate_gemini_answer(query, search_results)
-                generation_mode = "llm_router"
-            except Exception as exc:
-                logger.warning(f"RAG answer generation failed, using fallback: {exc}")
-                answer_data = self._generate_fallback(query, search_results, best_score)
-                generation_mode = "fallback_generation_error"
+            if self.client is None:
+                raise RuntimeError("GEMINI_API_KEY is required for grounded answer generation.")
+            answer_data = self._generate_gemini_answer(query, search_results)
+            generation_mode = "gemini"
 
         citations_json = [citation.model_dump() for citation in answer_data.citations]
         assistant_msg = None
@@ -172,6 +163,8 @@ class RAGService:
                 "retrieved_contexts": [item.text for item in search_results],
                 "retrieved_clause_ids": [item.clause_id for item in search_results],
                 "retrieval_scores": [item.score for item in search_results],
+                "retrieved_chunk_ids": [item.chunk_id for item in search_results],
+                "retrieval_trace": retrieval_trace,
                 "generation_mode": generation_mode,
             })
         return result
@@ -186,60 +179,72 @@ class RAGService:
         self, query: str, search_results: list[VectorSearchResult]
     ) -> GroundedAnswerBatch:
         context_str = ""
-        for r in search_results:
-            heading_info = f" ({r.heading})" if r.heading else ""
+        for result in search_results:
+            heading_info = f" ({result.heading})" if result.heading else ""
             context_str += (
-                f"--- Clause ID: {r.clause_id}{heading_info} (span: {r.source_start}-{r.source_end}) ---\n"
-                f"{r.text}\n\n"
+                f"--- Clause ID: {result.clause_id}{heading_info} "
+                f"(span: {result.source_start}-{result.source_end}) ---\n"
+                f"{result.text}\n\n"
             )
 
         prompt = (
             "You are a strict, grounded legal assistant. Answer the user's question ONLY using the provided contract clauses.\n"
             "Rules:\n"
             "1. Base your answer strictly on the provided context clauses.\n"
-            "2. For every fact or claim in your answer, add a citation matching the exact clause_id and span.\n"
-            "3. Provide clear bullet points or short paragraphs for readability.\n"
-            "4. If the context does not contain enough information to answer the question, state that clearly and set confidence < 0.5.\n\n"
+            "2. For every factual claim, add a citation matching the exact clause_id and source span.\n"
+            "3. Do not infer missing names, amounts, dates, obligations, or legal outcomes.\n"
+            "4. If the context does not contain enough information, explicitly abstain and set confidence below 0.5.\n"
+            "5. Use only the supplied evidence and return the required structured JSON.\n\n"
             f"Question: {query}\n\n"
             f"Context Clauses:\n{context_str}"
         )
 
-        try:
-            return self.router.generate_structured(
-                prompt=prompt,
-                schema=GroundedAnswerBatch,
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=GroundedAnswerBatch,
                 temperature=0.1,
-            )
-        except Exception as e:
-            logger.warning(f"RAG LLM generation failed: {e}")
-            raise
+            ),
+        )
+        if not response or not response.text:
+            raise RuntimeError("Gemini returned an empty structured response.")
 
-    def _generate_fallback(
-        self, query: str, search_results: list[VectorSearchResult], best_score: float
-    ) -> GroundedAnswerBatch:
-        if not search_results or best_score < SIMILARITY_THRESHOLD:
-            return GroundedAnswerBatch(
-                answer=(
-                    "We are not confident in answering this question based on the document clauses. "
-                    "Please consult a legal professional."
-                ),
-                confidence=0.2,
-                citations=[],
-            )
+        answer = GroundedAnswerBatch.model_validate_json(response.text)
+        if answer.confidence >= 0.5 and not answer.citations:
+            raise ValueError("A non-abstaining answer must include at least one source citation.")
+        self._validate_citations(answer, search_results)
+        return answer
 
-        top_r = search_results[0]
-        summary = (
-            f"Based on clause '{top_r.clause_id}': \"{top_r.text[:200]}...\". "
-            "Please review the highlighted section of your document for full details."
-        )
-        citation = GroundedCitation(
-            clause_id=top_r.clause_id,
-            source_span_start=top_r.source_start,
-            source_span_end=top_r.source_end,
-            quoted_text=top_r.text[:150],
-        )
-        return GroundedAnswerBatch(
-            answer=summary,
-            confidence=0.7,
-            citations=[citation],
-        )
+    @staticmethod
+    def _validate_citations(
+        answer: GroundedAnswerBatch,
+        search_results: list[VectorSearchResult],
+    ) -> None:
+        for citation in answer.citations:
+            matches = [
+                result
+                for result in search_results
+                if result.clause_id == citation.clause_id
+                and result.source_start <= citation.source_span_start
+                and citation.source_span_end <= result.source_end
+            ]
+            if not citation.quoted_text.strip():
+                raise ValueError("A citation must include quoted source text.")
+            normalized_quote = " ".join(citation.quoted_text.lower().split())
+            valid_quote = any(
+                " ".join(
+                    result.text[
+                        citation.source_span_start - result.source_start :
+                        citation.source_span_end - result.source_start
+                    ].lower().split()
+                ) == normalized_quote
+                for result in matches
+            )
+            if not valid_quote:
+                raise ValueError(
+                    f"Citation for clause '{citation.clause_id}' does not match its exact retrieved source span."
+                )
+
+
