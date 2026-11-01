@@ -80,9 +80,12 @@ The following settings are in `backend/app/config/settings.py` and `backend/.env
 | `RETRIEVAL_CANDIDATE_K` | `20` |
 | `RETRIEVAL_FINAL_K` | `5` |
 | `RRF_K` | `60` |
+| `GEMINI_MIN_REQUEST_INTERVAL_SECONDS` | `12.5` |
 | `VECTOR_STORE_DIRECTORY` | `.chroma_db` |
 
 A change to `EMBEDDING_MODEL` creates a separate model-namespaced Chroma collection. It does not reuse vectors from a different embedding model. Re-index the documents using the newly configured model before serving queries.
+
+Gemini generation and RAGAS judge HTTP requests share a process-wide request pacer. The default interval of 12.5 seconds is conservative for a five-requests-per-minute Free Tier quota. Configure `GEMINI_MIN_REQUEST_INTERVAL_SECONDS` for the quota attached to your API project; use `0` only when your quota supports unpaced requests. The in-process pacer coordinates threads and asynchronous evaluator requests within one Python process. Multi-worker or multi-instance deployments must use a shared distributed limiter (for example, Redis) to coordinate a project-wide quota.
 
 ## Gold dataset
 
