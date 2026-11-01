@@ -20,6 +20,7 @@ from app.config.settings import settings
 from app.database.database import SessionLocal
 from app.repositories.clause_repository import ClauseRepository
 from app.services.vector_store_service import VectorStoreService
+from app.services.gemini_rate_limiter import create_gemini_async_http_client
 from evaluation.metrics import evaluate_query, percentile, summarize
 from evaluation.retrievers import RetrievalVariants
 
@@ -197,6 +198,7 @@ async def run_evaluation(args: argparse.Namespace) -> None:
 
     judge_model = args.judge_model or "gemini-3.5-flash-lite"
     ragas_metrics = {}
+    openai_client = None
 
     if not args.skip_ragas:
         if not settings.GEMINI_API_KEY:
@@ -212,6 +214,7 @@ async def run_evaluation(args: argparse.Namespace) -> None:
             openai_client = AsyncOpenAI(
                 api_key=settings.GEMINI_API_KEY,
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                http_client=create_gemini_async_http_client(),
             )
             judge_llm = llm_factory(
                 judge_model,
@@ -408,6 +411,8 @@ async def run_evaluation(args: argparse.Namespace) -> None:
 
     finally:
         db.close()
+        if openai_client is not None:
+            await openai_client.close()
 
     output_dir = Path(args.output_dir)
     summary = {
