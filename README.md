@@ -24,6 +24,14 @@ The project is designed around a production-minded separation of concerns:
 
 ---
 
+## Retrieval and evaluation
+
+The document chat uses strict dense + BM25 retrieval, Reciprocal Rank Fusion, and cross-encoder reranking. It returns the five highest-ranked evidence chunks to Gemini and records the retrieval trace for evaluation.
+
+See [Strict Hybrid Retrieval and RAGAS Evaluation](docs/retrieval-pipeline.md) for the retrieval stages, failure policy, configuration, run commands, and evaluation metrics.
+
+---
+
 ## Why this is more useful than a general-purpose chatbot
 
 A general chatbot starts from a language model and may answer from model knowledge or whatever context is supplied in a prompt. LegalDoc AI is designed around a stronger trust boundary: **the uploaded document is the source of truth**.
@@ -364,7 +372,7 @@ Document scoped query handler
 Reciprocal Rank Fusion (RRF)
       |
       v
-Light lexical reranking / overlap bonus
+Cross-encoder reranking (RRF Top 20 → final Top 5)
       |
       v
 Top-K evidence chunks
@@ -757,7 +765,7 @@ Dense ranking       Sparse ranking
         Reciprocal Rank Fusion
                |
                v
-         overlap reranking
+         cross-encoder reranking
                |
                v
              Top-K
@@ -765,7 +773,7 @@ Dense ranking       Sparse ranking
 
 ## Final reranking
 
-A small lexical overlap bonus is applied after fusion. This is intentionally much cheaper than invoking a large LLM reranker for every retrieved chunk.
+The fused Top-20 chunks are reranked with `cross-encoder/ms-marco-MiniLM-L6-v2` using query/chunk pairs. The final Top-5 chunks are passed to Gemini. The cross-encoder is a ranking model, not a calibrated confidence model.
 
 ### Why this saves cost
 
@@ -804,7 +812,7 @@ The query is always associated with a `document_id`. Retrieval is filtered to th
 The system retrieves relevant chunks from the document using:
 
 ```text
-dense similarity + lexical BM25-style score -> RRF -> lightweight rerank
+BGE dense Top 20 + BM25 Top 20 -> RRF Top 20 -> cross-encoder Top 5
 ```
 
 ## Stage 3 — construct an evidence prompt
@@ -1190,7 +1198,7 @@ The architecture intentionally reserves expensive compute for the smallest usefu
 5. Reuse chunk hashes
 6. Cache repeated query embeddings in Redis
 7. Retrieve Top-K instead of sending the whole document to the LLM
-8. Use cheap lexical reranking before expensive model calls
+8. Rerank fused Top-20 candidates with a cross-encoder before sending Top-5 evidence chunks to Gemini
 9. Batch classification where configured
 10. Separate CPU and GPU worker capacity
 ```
@@ -1434,7 +1442,7 @@ The architecture is intentionally structured so the next production upgrades can
 - add a gold retrieval dataset
 - benchmark Recall@K/MRR/nDCG
 - benchmark citation correctness and faithfulness
-- optionally evaluate a cross-encoder reranker
+- benchmark the cross-encoder on held-out legal-domain relevance labels and fine-tune only when the benchmark justifies it
 
 ## Priority 4 — scale and observability
 
@@ -1515,7 +1523,7 @@ The current README and UI screenshots support the following implementation narra
 | OCR/text extraction | PDF/native-text processing and scanned-document OCR paths are implemented |
 | Structure-aware chunking | Implemented with page/section/source metadata retained |
 | Embedding + vector indexing | SentenceTransformers embeddings are stored in ChromaDB |
-| Hybrid retrieval | Dense retrieval + BM25-style lexical retrieval + RRF + lightweight reranking |
+| Hybrid retrieval | Dense retrieval + BM25 over shared chunks + chunk-ID RRF + cross-encoder reranking |
 | Executive summary | UI screenshot shows document-level summary presentation |
 | Provision verification | UI screenshot shows page-level exact quotes for important provisions |
 | Obligation extraction | UI screenshot shows plain-language obligations with source verification |
@@ -1584,17 +1592,22 @@ Persistence
 
 ## Retrieval evaluation
 
-The repository includes an offline retrieval evaluator for comparing dense vector search, BM25-style keyword search, Reciprocal Rank Fusion, and the current hybrid reranked retrieval pipeline. It reports Recall@5/10, Precision@5/10, Hit Rate@5, MRR@10, nDCG@10, retrieval latency percentiles, and empty-result rate against manually labeled questions.
+The repository provides three evaluation entry points:
 
-See [the evaluation guide](backend/evaluation/README.md) for dataset format, setup, and execution. Add manually verified question labels to `backend/evaluation/datasets/retrieval_gold.jsonl`; [an example record](backend/evaluation/datasets/retrieval_gold.example.jsonl) shows the expected fields. The example IDs are placeholders and must be replaced with real IDs from your database.
+- `run_retrieval_eval.py` compares dense, BM25, RRF, and reranked IR retrieval with Recall/Precision@5 and @10, Hit Rate@5, MRR@10, nDCG@10, and latency percentiles.
+- `run_retrieval_ragas_eval.py` compares Dense, BM25, Hybrid RRF, and Hybrid RRF + Cross-Encoder using Recall/Precision/Hit Rate@1/@3/@5, MRR@5, nDCG@5, RAGAS Context Precision/Recall, latency, metric coverage, and unanswerable-query diagnostics.
+- `run_ragas_eval.py` evaluates the production chat path with Context Precision, Context Recall, Faithfulness, Answer Correctness, Answer Relevancy, citation checks, abstention diagnostics, and latency.
 
-Run from the repository root after configuring PostgreSQL, ChromaDB, and project dependencies:
+See [the strict retrieval pipeline guide](docs/retrieval-pipeline.md) for the current retrieval configuration and evaluation commands. Add manually verified question labels to `backend/evaluation/datasets/retrieval_gold.jsonl`; the example IDs are placeholders and must be replaced with real IDs from your database.
+
+Run from the repository root after configuring PostgreSQL, ChromaDB, the configured BGE embedding model, the cross-encoder model, and Gemini credentials:
 
 ```bash
-poetry run python backend/evaluation/run_retrieval_eval.py --dataset backend/evaluation/datasets/retrieval_gold.jsonl
+poetry run python backend/evaluation/run_retrieval_ragas_eval.py --top-k 5
+poetry run python backend/evaluation/run_ragas_eval.py --top-k 5 --candidate-k 20
 ```
 
-Results are written to `artifacts/retrieval-evaluation/`. Report only measured values from your own labeled dataset; the evaluator does not assume that hybrid retrieval outperforms either baseline.
+Results are written under `artifacts/retrieval-ragas-evaluation/` and `artifacts/ragas-evaluation/`. These commands have not been run against a live database or Gemini credentials as part of this code change; report only reproducible results from a reviewed, held-out legal-domain evaluation dataset.
 
 
 ## End-to-end RAG evaluation with Ragas

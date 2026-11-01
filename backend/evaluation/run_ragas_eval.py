@@ -20,7 +20,7 @@ from app.database.database import SessionLocal
 from app.repositories.clause_repository import ClauseRepository
 from app.services.rag_service import RAGService
 from app.services.vector_store_service import VectorStoreService
-from evaluation.metrics import percentile, summarize
+from evaluation.metrics import evaluate_query, percentile, summarize
 
 
 RAGAS_METRICS = (
@@ -29,6 +29,13 @@ RAGAS_METRICS = (
     "faithfulness",
     "answer_correctness",
     "answer_relevancy",
+)
+RETRIEVAL_METRICS = (
+    "recall@5",
+    "precision@5",
+    "hit_rate@5",
+    "mrr@5",
+    "ndcg@5",
 )
 ABSTENTION_PATTERN = re.compile(
     r"\b(?:cannot answer|can't answer|unable to answer|cannot determine|"
@@ -116,24 +123,65 @@ def citation_metrics(citations, expected_clause_ids, clauses):
         precision = 1.0 if not cited else 0.0
         recall = None
 
-    clause_text_by_id = {str(clause.clause_id): clause.text or "" for clause in clauses}
+    clauses_by_id = {
+        str(clause.clause_id): clause
+        for clause in clauses
+    }
+    valid_citation_count = sum(
+        1 for citation in citations
+        if str(citation.get("clause_id", "")) in clauses_by_id
+    )
+    citation_validity_rate = (
+        valid_citation_count / len(citations)
+        if citations
+        else (1.0 if not expected else 0.0)
+    )
+
     quote_matches = 0
     quote_total = 0
+    span_matches = 0
+    span_total = 0
+
     for citation in citations:
         clause_id = str(citation.get("clause_id", ""))
+        clause = clauses_by_id.get(clause_id)
+        source = normalize_text(clause.text if clause else "")
         quote = normalize_text(citation.get("quoted_text", ""))
-        source = normalize_text(clause_text_by_id.get(clause_id, ""))
-        if not quote:
-            continue
-        quote_total += 1
-        if quote in source:
-            quote_matches += 1
+
+        quote_match = bool(quote and source and quote in source)
+        if quote:
+            quote_total += 1
+            if quote_match:
+                quote_matches += 1
+
+        source_start = citation.get("source_span_start")
+        source_end = citation.get("source_span_end")
+        if source_start is not None and source_end is not None:
+            span_total += 1
+            if (
+                clause is not None
+                and int(clause.source_start) <= int(source_start)
+                and int(source_end) <= int(clause.source_end)
+                and int(source_end) > int(source_start)
+                and quote
+                == normalize_text(
+                    clause.text[
+                        int(source_start) - int(clause.source_start) :
+                        int(source_end) - int(clause.source_start)
+                    ]
+                )
+            ):
+                span_matches += 1
 
     return {
         "citation_precision": precision,
         "citation_recall": recall,
         "citation_quote_match_rate": (
             quote_matches / quote_total if quote_total else None
+        ),
+        "citation_validity_rate": citation_validity_rate,
+        "citation_span_accuracy": (
+            span_matches / span_total if span_total else None
         ),
         "cited_clause_ids": cited_ids,
     }
@@ -251,9 +299,12 @@ async def run_evaluation(args):
     indexed_chunk_counts = {}
     result_rows = []
     metric_values = defaultdict(list)
+    retrieval_metric_values = defaultdict(list)
+    metric_eligible = Counter()
     metric_errors = Counter()
     generation_modes = Counter()
     latency_values = []
+    unanswerable_retrieval_nonempty = []
     embedding_dimension = None
 
     try:
@@ -311,6 +362,7 @@ async def run_evaluation(args):
                 document_id=document_id,
                 query=record["query"],
                 top_k=args.top_k,
+                candidate_k=args.candidate_k,
                 persist_messages=False,
                 include_evaluation_details=True,
                 index_document=False,
@@ -324,16 +376,34 @@ async def run_evaluation(args):
                 for item in chatbot_result.get("retrieved_contexts", [])
                 if str(item).strip()
             ]
-            retrieved_ids = [
+            retrieved_ids = list(
+                dict.fromkeys(
+                    str(item)
+                    for item in chatbot_result.get("retrieved_clause_ids", [])
+                )
+            )
+            retrieved_chunk_ids = [
                 str(item)
-                for item in chatbot_result.get("retrieved_clause_ids", [])
+                for item in chatbot_result.get("retrieved_chunk_ids", [])
             ]
+            retrieval_trace = chatbot_result.get("retrieval_trace") or {}
             citations = chatbot_result.get("citations") or []
             expected_ids = record["relevant_clause_ids"]
             scores = {name: None for name in RAGAS_METRICS}
             errors = {}
+            ir_scores = evaluate_query(retrieved_ids, expected_ids)
+            unanswerable_retrieval_nonempty.append(
+                bool(retrieved_chunk_ids) if not record["answerable"] else None
+            )
+
+            if record["answerable"]:
+                for name in RETRIEVAL_METRICS:
+                    value = ir_scores[name]
+                    if value is not None:
+                        retrieval_metric_values[name].append(value)
 
             if contexts and answer.strip():
+                metric_eligible["faithfulness"] += 1
                 scores["faithfulness"], error = await score_metric(
                     metrics["faithfulness"],
                     {
@@ -345,10 +415,10 @@ async def run_evaluation(args):
                 if error:
                     errors["faithfulness"] = error
                     metric_errors["faithfulness"] += 1
-            else:
-                errors["faithfulness"] = "Skipped because answer or retrieved context is empty"
 
             if record["answerable"]:
+                for name in ("context_precision", "context_recall"):
+                    metric_eligible[name] += 1
                 if contexts:
                     for name in ("context_precision", "context_recall"):
                         scores[name], error = await score_metric(
@@ -367,6 +437,7 @@ async def run_evaluation(args):
                     scores["context_recall"] = 0.0
 
             for name in ("answer_correctness", "answer_relevancy"):
+                metric_eligible[name] += 1
                 metric_args = {
                     "user_input": record["query"],
                     "response": answer,
@@ -406,6 +477,8 @@ async def run_evaluation(args):
                     "confidence": chatbot_result.get("confidence"),
                     "generation_mode": generation_mode,
                     "retrieved_clause_ids": json.dumps(retrieved_ids, ensure_ascii=False),
+                    "retrieved_chunk_ids": json.dumps(retrieved_chunk_ids, ensure_ascii=False),
+                    "retrieval_trace": json.dumps(retrieval_trace, ensure_ascii=False),
                     "retrieved_contexts": json.dumps(contexts, ensure_ascii=False),
                     "citations": json.dumps(citations, ensure_ascii=False),
                     "latency_ms": round(latency_ms, 3),
@@ -414,6 +487,9 @@ async def run_evaluation(args):
                     "citation_precision": citation_results["citation_precision"],
                     "citation_recall": citation_results["citation_recall"],
                     "citation_quote_match_rate": citation_results["citation_quote_match_rate"],
+                    "citation_validity_rate": citation_results["citation_validity_rate"],
+                    "citation_span_accuracy": citation_results["citation_span_accuracy"],
+                    **ir_scores,
                     **scores,
                     "metric_errors": json.dumps(errors, ensure_ascii=False),
                 }
@@ -433,11 +509,18 @@ async def run_evaluation(args):
         "query_count": len(records),
         "document_count": len(clauses_by_document),
         "top_k": args.top_k,
+        "candidate_k": args.candidate_k,
+        "retrieval_pipeline": "dense_bm25_rrf_cross_encoder",
+        "dense_candidate_k": args.candidate_k,
+        "fusion": "rrf",
+        "rrf_k": settings.RRF_K,
+        "reranker_model": settings.RERANKER_MODEL,
         "chat_model": settings.GEMINI_MODEL,
         "judge_model": judge_model,
         "judge_embedding_model": embedding_model,
         "ragas_version_range": ">=0.4.3,<0.5.0",
         "application_embedding_model": settings.EMBEDDING_MODEL,
+        "embedding_query_instruction": settings.EMBEDDING_QUERY_INSTRUCTION,
         "application_embedding_dimension": embedding_dimension,
         "isolated_vector_store_directory": vector_store_directory,
         "indexed_chunk_counts": indexed_chunk_counts,
@@ -447,9 +530,29 @@ async def run_evaluation(args):
             name: {
                 "mean": summarize(metric_values[name]),
                 "scored_queries": len(metric_values[name]),
+                "eligible_queries": metric_eligible[name],
+                "coverage": (
+                    len(metric_values[name]) / metric_eligible[name]
+                    if metric_eligible[name]
+                    else None
+                ),
             }
             for name in RAGAS_METRICS
         },
+        "retrieval_metrics": {
+            name: {
+                "mean": summarize(retrieval_metric_values[name]),
+                "scored_queries": len(retrieval_metric_values[name]),
+                "eligible_queries": sum(bool(row["answerable"]) for row in result_rows),
+            }
+            for name in RETRIEVAL_METRICS
+        },
+        "unanswerable_retrieval_nonempty_rate": (
+            sum(value is True for value in unanswerable_retrieval_nonempty)
+            / sum(value is not None for value in unanswerable_retrieval_nonempty)
+            if any(value is not None for value in unanswerable_retrieval_nonempty)
+            else None
+        ),
         "custom_metrics": {
             name: {
                 "mean": summarize([row[name] for row in result_rows]),
@@ -459,6 +562,8 @@ async def run_evaluation(args):
                 "citation_precision",
                 "citation_recall",
                 "citation_quote_match_rate",
+                "citation_validity_rate",
+                "citation_span_accuracy",
                 "abstention_accuracy",
             )
         },
@@ -486,7 +591,8 @@ def main():
         "--output-dir",
         default=str(ROOT_DIR / "artifacts" / "ragas-evaluation"),
     )
-    parser.add_argument("--top-k", type=int, default=4)
+    parser.add_argument("--top-k", type=int, default=5)
+    parser.add_argument("--candidate-k", type=int, default=20)
     parser.add_argument("--limit", type=int)
     parser.add_argument("--judge-model")
     parser.add_argument("--embedding-model", default="gemini-embedding-001")
@@ -494,6 +600,8 @@ def main():
 
     if args.top_k < 1:
         parser.error("--top-k must be at least 1")
+    if args.candidate_k < args.top_k:
+        parser.error("--candidate-k must be greater than or equal to --top-k")
     asyncio.run(run_evaluation(args))
 
 

@@ -15,10 +15,14 @@ def test_citation_metrics_checks_clause_ids_and_quotes():
     clause = SimpleNamespace(
         clause_id="c1",
         text="The Tenant shall pay a refundable security deposit of INR 96,000.",
+        source_start=0,
+        source_end=65,
     )
     citations = [
         {
             "clause_id": "c1",
+            "source_span_start": 0,
+            "source_span_end": 65,
             "quoted_text": "The Tenant shall pay a refundable security deposit of INR 96,000.",
         }
     ]
@@ -28,6 +32,8 @@ def test_citation_metrics_checks_clause_ids_and_quotes():
     assert result["citation_precision"] == 1.0
     assert result["citation_recall"] == 1.0
     assert result["citation_quote_match_rate"] == 1.0
+    assert result["citation_validity_rate"] == 1.0
+    assert result["citation_span_accuracy"] == 1.0
 
 
 def test_unanswerable_question_without_citations_has_full_citation_precision():
@@ -36,6 +42,8 @@ def test_unanswerable_question_without_citations_has_full_citation_precision():
     assert result["citation_precision"] == 1.0
     assert result["citation_recall"] is None
     assert result["citation_quote_match_rate"] is None
+    assert result["citation_validity_rate"] == 1.0
+    assert result["citation_span_accuracy"] is None
 
 
 def test_abstention_prediction_uses_confidence_and_language():

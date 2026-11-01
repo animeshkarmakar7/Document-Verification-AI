@@ -77,7 +77,12 @@ class DocumentQueryHandler:
     ) -> list[VectorSearchResult]:
         self.get_document(document_id)
         clauses = self.clause_repo.list_by_document(document_id)
-        return RAGService(db=self.db).vector_store.hybrid_search(
+        rag_service = RAGService(db=self.db)
+        rag_service.vector_store.index_document_clauses(
+            document_id,
+            clauses,
+        )
+        return rag_service.vector_store.hybrid_search(
             document_id=document_id,
             query=query,
             clauses=clauses,

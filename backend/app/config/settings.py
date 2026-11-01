@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = "llama3-8b-8192"
 
     EMBEDDING_MODEL: str = "BAAI/bge-large-en-v1.5"
+    EMBEDDING_QUERY_INSTRUCTION: str = "Represent this sentence for searching relevant passages:"
+    RERANKER_MODEL: str = "cross-encoder/ms-marco-MiniLM-L6-v2"
+    RERANKER_BATCH_SIZE: int = 16
+    RETRIEVAL_CANDIDATE_K: int = 20
+    RETRIEVAL_FINAL_K: int = 5
+    RRF_K: int = 60
     VECTOR_STORE_DIRECTORY: str = str(BACKEND_DIR / ".chroma_db")
 
     DEDUP_CACHE_BACKEND: str = "memory"

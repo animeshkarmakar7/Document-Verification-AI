@@ -27,13 +27,17 @@ logger = logging.getLogger(__name__)
 
 VARIANTS = ("dense_only", "bm25_only", "hybrid_rrf", "hybrid_reranked")
 IR_METRICS = (
+    "recall@1",
+    "recall@3",
     "recall@5",
-    "recall@10",
+    "precision@1",
+    "precision@3",
     "precision@5",
-    "precision@10",
+    "hit_rate@1",
+    "hit_rate@3",
     "hit_rate@5",
-    "mrr@10",
-    "ndcg@10",
+    "mrr@5",
+    "ndcg@5",
 )
 RAGAS_RETRIEVAL_METRICS = ("context_precision", "context_recall")
 
@@ -151,8 +155,8 @@ def print_comparison_table(summary: dict) -> None:
     variants = summary["variants"]
     headers = [
         "Variant",
-        "MRR@10",
-        "nDCG@10",
+        "MRR@5",
+        "nDCG@5",
         "Recall@5",
         "HitRate@5",
         "Ctx Precision",
@@ -170,8 +174,8 @@ def print_comparison_table(summary: dict) -> None:
     print(separator)
 
     for v_name, data in variants.items():
-        mrr = f"{data['mrr@10']:.4f}" if data.get("mrr@10") is not None else "N/A"
-        ndcg = f"{data['ndcg@10']:.4f}" if data.get("ndcg@10") is not None else "N/A"
+        mrr = f"{data['mrr@5']:.4f}" if data.get("mrr@5") is not None else "N/A"
+        ndcg = f"{data['ndcg@5']:.4f}" if data.get("ndcg@5") is not None else "N/A"
         r5 = f"{data['recall@5']:.4f}" if data.get("recall@5") is not None else "N/A"
         hr5 = f"{data['hit_rate@5']:.4f}" if data.get("hit_rate@5") is not None else "N/A"
         cp = f"{data['context_precision']:.4f}" if data.get("context_precision") is not None else "N/A"
@@ -234,7 +238,10 @@ async def run_evaluation(args: argparse.Namespace) -> None:
     latencies = defaultdict(list)
     metric_values = defaultdict(lambda: defaultdict(list))
     ragas_metric_values = defaultdict(lambda: defaultdict(list))
+    ragas_metric_eligible = defaultdict(Counter)
     metric_errors = defaultdict(Counter)
+    unanswerable_nonempty_counts = Counter()
+    unanswerable_counts = Counter()
     evaluation_cache = {}
     result_rows = []
 
@@ -257,7 +264,7 @@ async def run_evaluation(args: argparse.Namespace) -> None:
                 raise RuntimeError(f"No chunks indexed for document_id={document_id}")
 
         embedding_dimension = vector_store.validate_embedding_dimensions()
-        retrieval_k = max(args.top_k, 5)
+        retrieval_k = args.top_k
 
         total_runs = len(records) * len(VARIANTS)
         completed = 0
@@ -279,23 +286,37 @@ async def run_evaluation(args: argparse.Namespace) -> None:
                 elapsed_ms = (time.perf_counter() - started) * 1000
                 latencies[variant_name].append(elapsed_ms)
 
-                retrieved_ids = [res.clause_id for res in retrieved_results]
+                retrieved_ids = list(
+                    dict.fromkeys(
+                        res.clause_id for res in retrieved_results if res.clause_id
+                    )
+                )
+                retrieved_chunk_ids = [
+                    res.chunk_id for res in retrieved_results if res.chunk_id
+                ]
                 retrieved_contexts = [
                     res.text for res in retrieved_results if res.text and res.text.strip()
                 ]
 
+                if not answerable:
+                    unanswerable_counts[variant_name] += 1
+                    if retrieved_chunk_ids:
+                        unanswerable_nonempty_counts[variant_name] += 1
+
                 # 1. Deterministic IR metrics
                 ir_scores = evaluate_query(retrieved_ids, relevant, relevance)
-                for metric, val in ir_scores.items():
-                    if metric.startswith(("recall", "hit_rate")) and not answerable:
-                        continue
-                    metric_values[variant_name][metric].append(val)
+                if answerable:
+                    for metric, val in ir_scores.items():
+                        if val is not None:
+                            metric_values[variant_name][metric].append(val)
 
                 # 2. Ragas metrics
                 ragas_scores = {name: None for name in RAGAS_RETRIEVAL_METRICS}
                 errors = {}
 
                 if not args.skip_ragas and answerable and ref_answer.strip():
+                    ragas_metric_eligible[variant_name]["context_precision"] += 1
+                    ragas_metric_eligible[variant_name]["context_recall"] += 1
                     if retrieved_contexts:
                         ctx_tuple = tuple(retrieved_contexts)
                         cp_key = (query, ctx_tuple, "context_precision")
@@ -357,6 +378,8 @@ async def run_evaluation(args: argparse.Namespace) -> None:
                         "answerable": answerable,
                         "reference_answer": ref_answer,
                         "retrieved_clause_ids": json.dumps(retrieved_ids, ensure_ascii=False),
+                        "retrieved_chunk_ids": json.dumps(retrieved_chunk_ids, ensure_ascii=False),
+                        "retrieved_contexts": json.dumps(retrieved_contexts, ensure_ascii=False),
                         "retrieved_contexts_count": len(retrieved_contexts),
                         "latency_ms": round(elapsed_ms, 3),
                         **ir_scores,
@@ -378,7 +401,7 @@ async def run_evaluation(args: argparse.Namespace) -> None:
                 )
                 print(
                     f"[{completed}/{total_runs}] query={record['query_id']} "
-                    f"variant={variant_name:<16} mrr={ir_scores['mrr@10']:.3f} "
+                    f"variant={variant_name:<16} mrr={ir_scores['mrr@5']:.3f} "
                     f"lat={elapsed_ms:.1f}ms {cp_display} {cr_display}",
                     flush=True,
                 )
@@ -393,6 +416,14 @@ async def run_evaluation(args: argparse.Namespace) -> None:
         "document_count": len(clauses_by_document),
         "requested_top_k": args.top_k,
         "retrieval_k": retrieval_k,
+        "candidate_k_per_retriever": settings.RETRIEVAL_CANDIDATE_K,
+        "retrieval_pipeline": "dense_bm25_rrf_cross_encoder",
+        "dense_model": vector_store.model_name,
+        "embedding_query_instruction": settings.EMBEDDING_QUERY_INSTRUCTION,
+        "sparse_method": "bm25_okapi",
+        "fusion_method": "rrf",
+        "rrf_k": settings.RRF_K,
+        "reranker_model": settings.RERANKER_MODEL,
         "embedding_model": vector_store.model_name,
         "embedding_dimension": embedding_dimension,
         "judge_model": judge_model if not args.skip_ragas else "none (skipped)",
@@ -421,6 +452,25 @@ async def run_evaluation(args: argparse.Namespace) -> None:
             / len(records)
         )
         variant_summary["metric_errors"] = dict(metric_errors[variant_name])
+        variant_summary["ragas_metric_coverage"] = {
+            metric_name: {
+                "eligible_queries": ragas_metric_eligible[variant_name][metric_name],
+                "scored_queries": len(ragas_metric_values[variant_name][metric_name]),
+                "coverage": (
+                    len(ragas_metric_values[variant_name][metric_name])
+                    / ragas_metric_eligible[variant_name][metric_name]
+                    if ragas_metric_eligible[variant_name][metric_name]
+                    else None
+                ),
+            }
+            for metric_name in RAGAS_RETRIEVAL_METRICS
+        }
+        variant_summary["unanswerable_nonempty_result_rate"] = (
+            unanswerable_nonempty_counts[variant_name]
+            / unanswerable_counts[variant_name]
+            if unanswerable_counts[variant_name]
+            else None
+        )
         summary["variants"][variant_name] = variant_summary
 
     csv_path, json_path = write_outputs(result_rows, summary, output_dir)
@@ -443,7 +493,7 @@ def main():
         default=str(ROOT_DIR / "artifacts" / "retrieval-ragas-evaluation"),
         help="Directory to save query results CSV and summary JSON",
     )
-    parser.add_argument("--top-k", type=int, default=5, help="Top-K results to evaluate")
+    parser.add_argument("--top-k", type=int, default=5, help="Final Top-K contexts to evaluate")
     parser.add_argument("--limit", type=int, help="Limit number of queries evaluated")
     parser.add_argument("--judge-model", help="Gemini judge model name (defaults to GEMINI_MODEL)")
     parser.add_argument(
