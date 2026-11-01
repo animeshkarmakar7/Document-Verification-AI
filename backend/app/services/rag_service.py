@@ -10,6 +10,7 @@ from app.repositories.chat_repository import ChatRepository
 from app.repositories.clause_repository import ClauseRepository
 from app.repositories.document_repository import DocumentRepository
 from app.services.vector_store_service import VectorStoreService, VectorSearchResult
+from app.services.gemini_rate_limiter import wait_for_gemini_request
 from sqlalchemy.orm import Session
 
 
@@ -33,6 +34,17 @@ class GroundedAnswerBatch(BaseModel):
     answer: str
     confidence: float = Field(..., ge=0.0, le=1.0)
     citations: list[GroundedCitation]
+
+
+class GeneratedCitation(BaseModel):
+    clause_id: str = Field(..., min_length=1)
+    quoted_text: str = Field(..., min_length=1)
+
+
+class GeneratedAnswerBatch(BaseModel):
+    answer: str = Field(..., min_length=1)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    citations: list[GeneratedCitation]
 
 
 class RAGService:
@@ -178,44 +190,147 @@ class RAGService:
     def _generate_gemini_answer(
         self, query: str, search_results: list[VectorSearchResult]
     ) -> GroundedAnswerBatch:
-        context_str = ""
+        context_parts = []
         for result in search_results:
             heading_info = f" ({result.heading})" if result.heading else ""
-            context_str += (
-                f"--- Clause ID: {result.clause_id}{heading_info} "
-                f"(span: {result.source_start}-{result.source_end}) ---\n"
-                f"{result.text}\n\n"
+            context_parts.append(
+                f"--- Clause ID: {result.clause_id}{heading_info} ---\n"
+                f"{result.text}"
             )
+        context_str = "\n\n".join(context_parts)
 
         prompt = (
             "You are a strict, grounded legal assistant. Answer the user's question ONLY using the provided contract clauses.\n"
             "Rules:\n"
-            "1. Base your answer strictly on the provided context clauses.\n"
-            "2. For every factual claim, add a citation matching the exact clause_id and source span.\n"
-            "3. Do not infer missing names, amounts, dates, obligations, or legal outcomes.\n"
-            "4. If the context does not contain enough information, explicitly abstain and set confidence below 0.5.\n"
-            "5. Use only the supplied evidence and return the required structured JSON.\n\n"
+            "1. Base every factual statement strictly on the supplied context.\n"
+            "2. Cite every material factual claim with a clause_id from the supplied context.\n"
+            "3. For each citation, provide a short, contiguous, verbatim quote copied from that clause.\n"
+            "4. Preserve the exact capitalization, punctuation, and wording of each quote. Do not paraphrase, add ellipses, or add quotation marks to the quoted_text value.\n"
+            "5. Return only clause_id and quoted_text for each citation. Do not generate offsets, line numbers, or source positions.\n"
+            "6. Do not infer missing names, amounts, dates, obligations, or legal outcomes.\n"
+            "7. If the context does not establish the answer, explicitly abstain and set confidence below 0.5.\n"
+            "8. Return the required structured JSON only.\n\n"
             f"Question: {query}\n\n"
             f"Context Clauses:\n{context_str}"
         )
 
+        wait_for_gemini_request()
         response = self.client.models.generate_content(
             model=self.model_name,
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=GroundedAnswerBatch,
+                response_schema=GeneratedAnswerBatch,
                 temperature=0.1,
             ),
         )
         if not response or not response.text:
             raise RuntimeError("Gemini returned an empty structured response.")
 
-        answer = GroundedAnswerBatch.model_validate_json(response.text)
-        if answer.confidence >= 0.5 and not answer.citations:
+        generated = GeneratedAnswerBatch.model_validate_json(response.text)
+        if generated.confidence >= 0.5 and not generated.citations:
             raise ValueError("A non-abstaining answer must include at least one source citation.")
+
+        answer = GroundedAnswerBatch(
+            answer=generated.answer,
+            confidence=generated.confidence,
+            citations=self._ground_citations(generated.citations, search_results),
+        )
         self._validate_citations(answer, search_results)
         return answer
+
+    @staticmethod
+    def _find_quote_span(source_text: str, quoted_text: str) -> tuple[int, int] | None:
+        normalized_chars = []
+        source_spans = []
+        cursor = 0
+
+        while cursor < len(source_text):
+            if source_text[cursor].isspace():
+                whitespace_start = cursor
+                while cursor < len(source_text) and source_text[cursor].isspace():
+                    cursor += 1
+                if normalized_chars and cursor < len(source_text):
+                    normalized_chars.append(" ")
+                    source_spans.append((whitespace_start, cursor))
+            else:
+                normalized_chars.append(source_text[cursor])
+                source_spans.append((cursor, cursor + 1))
+                cursor += 1
+
+        normalized_source = "".join(normalized_chars)
+        normalized_quote = " ".join(quoted_text.split())
+        if not normalized_quote:
+            return None
+
+        match_start = normalized_source.find(normalized_quote)
+        if match_start < 0:
+            return None
+
+        match_end = match_start + len(normalized_quote)
+        return (
+            source_spans[match_start][0],
+            source_spans[match_end - 1][1],
+        )
+
+    @staticmethod
+    def _ground_citations(
+        generated_citations: list[GeneratedCitation],
+        search_results: list[VectorSearchResult],
+    ) -> list[GroundedCitation]:
+        grounded_citations = []
+        seen_spans = set()
+
+        for citation in generated_citations:
+            matched_result = None
+            matched_span = None
+
+            for result in search_results:
+                if result.clause_id != citation.clause_id:
+                    continue
+                if result.source_end - result.source_start != len(result.text):
+                    raise RuntimeError(
+                        f"Retrieved source offsets do not align with chunk text for clause '{result.clause_id}'."
+                    )
+
+                span = RAGService._find_quote_span(
+                    result.text,
+                    citation.quoted_text,
+                )
+                if span is not None:
+                    matched_result = result
+                    matched_span = span
+                    break
+
+            if matched_result is None or matched_span is None:
+                raise ValueError(
+                    f"Quoted evidence for clause '{citation.clause_id}' "
+                    "was not found verbatim in retrieved context."
+                )
+
+            local_start, local_end = matched_span
+            source_start = matched_result.source_start + local_start
+            source_end = matched_result.source_start + local_end
+            canonical_quote = matched_result.text[local_start:local_end]
+
+            if source_end <= source_start:
+                raise ValueError("A grounded citation must have a non-empty source span.")
+
+            span_key = (citation.clause_id, source_start, source_end)
+            if span_key in seen_spans:
+                continue
+            seen_spans.add(span_key)
+
+            grounded_citations.append(
+                GroundedCitation(
+                    clause_id=citation.clause_id,
+                    source_span_start=source_start,
+                    source_span_end=source_end,
+                    quoted_text=canonical_quote,
+                )
+            )
+
+        return grounded_citations
 
     @staticmethod
     def _validate_citations(
@@ -223,28 +338,33 @@ class RAGService:
         search_results: list[VectorSearchResult],
     ) -> None:
         for citation in answer.citations:
-            matches = [
-                result
-                for result in search_results
-                if result.clause_id == citation.clause_id
-                and result.source_start <= citation.source_span_start
-                and citation.source_span_end <= result.source_end
-            ]
-            if not citation.quoted_text.strip():
+            if not citation.quoted_text:
                 raise ValueError("A citation must include quoted source text.")
-            normalized_quote = " ".join(citation.quoted_text.lower().split())
-            valid_quote = any(
-                " ".join(
-                    result.text[
-                        citation.source_span_start - result.source_start :
-                        citation.source_span_end - result.source_start
-                    ].lower().split()
-                ) == normalized_quote
-                for result in matches
-            )
+            if citation.source_span_end <= citation.source_span_start:
+                raise ValueError("A citation source span must have a positive length.")
+
+            valid_quote = False
+            for result in search_results:
+                if result.clause_id != citation.clause_id:
+                    continue
+                if not (
+                    result.source_start <= citation.source_span_start
+                    and citation.source_span_end <= result.source_end
+                ):
+                    continue
+                if result.source_end - result.source_start != len(result.text):
+                    raise RuntimeError(
+                        f"Retrieved source offsets do not align with chunk text for clause '{result.clause_id}'."
+                    )
+
+                local_start = citation.source_span_start - result.source_start
+                local_end = citation.source_span_end - result.source_start
+                source_quote = result.text[local_start:local_end]
+                if source_quote == citation.quoted_text:
+                    valid_quote = True
+                    break
+
             if not valid_quote:
                 raise ValueError(
                     f"Citation for clause '{citation.clause_id}' does not match its exact retrieved source span."
                 )
-
-
