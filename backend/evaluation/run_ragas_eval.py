@@ -519,6 +519,7 @@ async def run_evaluation(args):
         "rrf_k": settings.RRF_K,
         "reranker_model": settings.RERANKER_MODEL,
         "chat_model": settings.GEMINI_MODEL,
+        "gemini_min_request_interval_seconds": settings.GEMINI_MIN_REQUEST_INTERVAL_SECONDS,
         "judge_model": judge_model,
         "judge_embedding_model": embedding_model,
         "ragas_version_range": ">=0.4.3,<0.5.0",
