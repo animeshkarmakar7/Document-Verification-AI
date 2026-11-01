@@ -432,6 +432,7 @@ async def run_evaluation(args: argparse.Namespace) -> None:
         "embedding_model": vector_store.model_name,
         "embedding_dimension": embedding_dimension,
         "judge_model": judge_model if not args.skip_ragas else "none (skipped)",
+        "gemini_min_request_interval_seconds": settings.GEMINI_MIN_REQUEST_INTERVAL_SECONDS,
         "isolated_vector_store_directory": vector_store_directory,
         "variants": {},
     }
