@@ -2,9 +2,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.services import rag_service as rag_service_module
-
 from app.models.clause import Clause
+from app.services import rag_service as rag_service_module
 from app.services.rag_service import RAGService
 from app.services.vector_store_service import VectorSearchResult
 
@@ -20,16 +19,18 @@ def disable_gemini_pacing(monkeypatch):
 
 def test_rag_chat_evaluation_mode_returns_context_without_persisting_messages():
     db = MagicMock()
+    source_text = "The Tenant shall pay a refundable security deposit of INR 96,000."
+    source_end = len(source_text)
     vector_store = MagicMock()
     vector_store.hybrid_search_with_trace.return_value = (
         [
             VectorSearchResult(
                 clause_id="doc-1-clause-0001",
                 chunk_id="doc-1-clause-0001-chunk-001",
-                text="The Tenant shall pay a refundable security deposit of INR 96,000.",
+                text=source_text,
                 score=2.1,
                 source_start=0,
-                source_end=65,
+                source_end=source_end,
                 heading="Security Deposit",
             )
         ],
@@ -53,18 +54,21 @@ def test_rag_chat_evaluation_mode_returns_context_without_persisting_messages():
         vector_store=vector_store,
         client=client,
     )
-    service.doc_repo.get_by_id.return_value = object()
-    service.clause_repo.list_by_document.return_value = [
-        Clause(
-            id="clause-pk-1",
-            document_id="doc-1",
-            clause_id="doc-1-clause-0001",
-            text="The Tenant shall pay a refundable security deposit of INR 96,000.",
-            source_start=0,
-            source_end=65,
-            order_index=0,
-        )
-    ]
+    service.doc_repo.get_by_id = MagicMock(return_value=object())
+    service.chat_repo.create = MagicMock()
+    service.clause_repo.list_by_document = MagicMock(
+        return_value=[
+            Clause(
+                id="clause-pk-1",
+                document_id="doc-1",
+                clause_id="doc-1-clause-0001",
+                text=source_text,
+                source_start=0,
+                source_end=source_end,
+                order_index=0,
+            )
+        ]
+    )
 
     result = service.chat(
         document_id="doc-1",
@@ -77,11 +81,17 @@ def test_rag_chat_evaluation_mode_returns_context_without_persisting_messages():
     assert result["answer"] == "The security deposit is INR 96,000."
     assert result["retrieved_clause_ids"] == ["doc-1-clause-0001"]
     assert result["retrieved_chunk_ids"] == ["doc-1-clause-0001-chunk-001"]
-    assert result["retrieved_contexts"] == [
-        "The Tenant shall pay a refundable security deposit of INR 96,000."
-    ]
+    assert result["retrieved_contexts"] == [source_text]
     assert result["generation_mode"] == "gemini"
     assert result["retrieval_trace"]["retrieval_pipeline"] == "dense_bm25_rrf_cross_encoder"
+    assert result["citations"] == [
+        {
+            "clause_id": "doc-1-clause-0001",
+            "source_span_start": 0,
+            "source_span_end": source_end,
+            "quoted_text": source_text,
+        }
+    ]
     service.chat_repo.create.assert_not_called()
     db.commit.assert_not_called()
     vector_store.index_document_clauses.assert_not_called()

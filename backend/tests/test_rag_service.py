@@ -4,10 +4,7 @@ import pytest
 
 from app.models.clause import Clause
 from app.services import rag_service as rag_service_module
-from app.services.rag_service import (
-    GeneratedCitation,
-    RAGService,
-)
+from app.services.rag_service import GeneratedCitation, RAGService
 from app.services.vector_store_service import VectorSearchResult
 
 
@@ -25,6 +22,11 @@ def disable_gemini_pacing(monkeypatch):
     )
 
 
+def configure_service_repositories(service, clauses):
+    service.doc_repo.get_by_id = MagicMock(return_value=object())
+    service.clause_repo.list_by_document = MagicMock(return_value=clauses)
+
+
 def test_rag_service_doc_not_found(mock_db):
     service = RAGService(db=mock_db, client=MagicMock())
     service.doc_repo.get_by_id = MagicMock(return_value=None)
@@ -36,6 +38,7 @@ def test_rag_service_doc_not_found(mock_db):
 def test_rag_service_grounds_citations_from_exact_retrieved_text(mock_db):
     source_text = "The tenant shall pay a security deposit of $1,000."
     source_start = 100
+    source_end = source_start + len(source_text)
     quote = "security deposit of $1,000"
     vector_store = MagicMock()
     vector_store.hybrid_search_with_trace.return_value = (
@@ -46,7 +49,7 @@ def test_rag_service_grounds_citations_from_exact_retrieved_text(mock_db):
                 text=source_text,
                 score=2.1,
                 source_start=source_start,
-                source_end=source_start + len(source_text),
+                source_end=source_end,
             )
         ],
         {"retrieval_pipeline": "dense_bm25_rrf_cross_encoder"},
@@ -63,18 +66,20 @@ def test_rag_service_grounds_citations_from_exact_retrieved_text(mock_db):
         vector_store=vector_store,
         client=client,
     )
-    service.doc_repo.get_by_id.return_value = object()
-    service.clause_repo.list_by_document.return_value = [
-        Clause(
-            id="clause-pk-1",
-            document_id="doc-1",
-            clause_id="doc-1-clause-0001",
-            text=source_text,
-            source_start=source_start,
-            source_end=source_start + len(source_text),
-            order_index=0,
-        )
-    ]
+    configure_service_repositories(
+        service,
+        [
+            Clause(
+                id="clause-pk-1",
+                document_id="doc-1",
+                clause_id="doc-1-clause-0001",
+                text=source_text,
+                source_start=source_start,
+                source_end=source_end,
+                order_index=0,
+            )
+        ],
+    )
 
     result = service.chat(
         "doc-1",
@@ -113,14 +118,16 @@ def test_grounded_quote_span_maps_collapsed_whitespace_to_source_offsets():
 
 
 def test_rag_service_rejects_quotes_not_present_in_retrieved_evidence():
+    source_text = "The tenant shall pay a security deposit of $1,000."
+    source_start = 20
     results = [
         VectorSearchResult(
             clause_id="doc-1-clause-0001",
             chunk_id="chunk-1",
-            text="The tenant shall pay a security deposit of $1,000.",
+            text=source_text,
             score=1.0,
-            source_start=20,
-            source_end=71,
+            source_start=source_start,
+            source_end=source_start + len(source_text),
         )
     ]
 
@@ -137,14 +144,15 @@ def test_rag_service_rejects_quotes_not_present_in_retrieved_evidence():
 
 
 def test_rag_service_rejects_citations_to_unretrieved_clauses():
+    source_text = "The tenant shall pay a security deposit."
     results = [
         VectorSearchResult(
             clause_id="doc-1-clause-0001",
             chunk_id="chunk-1",
-            text="The tenant shall pay a security deposit.",
+            text=source_text,
             score=1.0,
             source_start=0,
-            source_end=len("The tenant shall pay a security deposit."),
+            source_end=len(source_text),
         )
     ]
 
@@ -153,7 +161,7 @@ def test_rag_service_rejects_citations_to_unretrieved_clauses():
             [
                 GeneratedCitation(
                     clause_id="doc-1-clause-9999",
-                    quoted_text="The tenant shall pay a security deposit.",
+                    quoted_text=source_text,
                 )
             ],
             results,
@@ -172,18 +180,20 @@ def test_rag_service_does_not_invent_context_when_retrieval_is_empty(mock_db):
         vector_store=vector_store,
         client=None,
     )
-    service.doc_repo.get_by_id.return_value = object()
-    service.clause_repo.list_by_document.return_value = [
-        Clause(
-            id="clause-pk-2",
-            document_id="doc-2",
-            clause_id="doc-2-clause-0001",
-            text="The weather in California is warm.",
-            source_start=0,
-            source_end=34,
-            order_index=0,
-        )
-    ]
+    configure_service_repositories(
+        service,
+        [
+            Clause(
+                id="clause-pk-2",
+                document_id="doc-2",
+                clause_id="doc-2-clause-0001",
+                text="The weather in California is warm.",
+                source_start=0,
+                source_end=len("The weather in California is warm."),
+                order_index=0,
+            )
+        ],
+    )
 
     result = service.chat(
         "doc-2",
@@ -200,16 +210,17 @@ def test_rag_service_does_not_invent_context_when_retrieval_is_empty(mock_db):
 
 
 def test_rag_service_propagates_gemini_errors_without_fallback(mock_db):
+    source_text = "The tenant shall pay a security deposit of $1,000."
     vector_store = MagicMock()
     vector_store.hybrid_search_with_trace.return_value = (
         [
             VectorSearchResult(
                 clause_id="doc-1-clause-0001",
                 chunk_id="chunk-1",
-                text="The tenant shall pay a security deposit of $1,000.",
+                text=source_text,
                 score=2.1,
                 source_start=0,
-                source_end=len("The tenant shall pay a security deposit of $1,000."),
+                source_end=len(source_text),
             )
         ],
         {"retrieval_pipeline": "dense_bm25_rrf_cross_encoder"},
@@ -222,18 +233,20 @@ def test_rag_service_propagates_gemini_errors_without_fallback(mock_db):
         vector_store=vector_store,
         client=client,
     )
-    service.doc_repo.get_by_id.return_value = object()
-    service.clause_repo.list_by_document.return_value = [
-        Clause(
-            id="clause-pk-1",
-            document_id="doc-1",
-            clause_id="doc-1-clause-0001",
-            text="The tenant shall pay a security deposit of $1,000.",
-            source_start=0,
-            source_end=len("The tenant shall pay a security deposit of $1,000."),
-            order_index=0,
-        )
-    ]
+    configure_service_repositories(
+        service,
+        [
+            Clause(
+                id="clause-pk-1",
+                document_id="doc-1",
+                clause_id="doc-1-clause-0001",
+                text=source_text,
+                source_start=0,
+                source_end=len(source_text),
+                order_index=0,
+            )
+        ],
+    )
 
     with pytest.raises(RuntimeError, match="Gemini unavailable"):
         service.chat(
