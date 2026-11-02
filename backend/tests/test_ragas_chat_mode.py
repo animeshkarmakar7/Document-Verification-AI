@@ -55,6 +55,7 @@ def test_rag_chat_evaluation_mode_returns_context_without_persisting_messages():
         client=client,
     )
     service.doc_repo.get_by_id = MagicMock(return_value=object())
+    service.chat_repo.create = MagicMock()
     service.clause_repo.list_by_document = MagicMock(
         return_value=[
             Clause(
