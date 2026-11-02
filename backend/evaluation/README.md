@@ -242,4 +242,17 @@ Set `GEMINI_API_KEY` and the retrieval settings in `backend/.env`. Before runnin
 
 Record the dataset version, embedding model, query instruction, cross-encoder model, Gemini model, RAGAS version, environment, and evaluator arguments with each experiment. Warm models before benchmarking latency. Repeat runs under the target deployment environment and inspect the per-query CSV; aggregate metrics alone can hide failures on dates, amounts, negations, exceptions, and multi-clause questions.
 
+## Committed benchmark snapshot (3-query smoke test)
+
+The committed report at `artifacts/retrieval-ragas-evaluation/retrieval_ragas_summary.json` records a smoke test over **3 queries from 1 sample document**, with `top_k=5`, `BAAI/bge-large-en-v1.5` embeddings (1024 dimensions), and `gemini-3.5-flash-lite` as the RAGAS judge.
+
+| Retrieval variant | Recall@5 | Precision@5 | Context Precision | Context Recall | P50 latency (ms) | P95 latency (ms) |
+|---|---:|---:|---:|---:|---:|---:|
+| Dense only | 1.000 | 0.200 | 0.650 | 0.667 | 266.6 | 280.5 |
+| BM25 only | 1.000 | 0.200 | 0.972 | 1.000 | 3.1 | 3.8 |
+| Hybrid RRF | 1.000 | 0.200 | 0.962 | 1.000 | 279.7 | 313.3 |
+| Hybrid reranked | 1.000 | 0.200 | 0.962 | 1.000 | 245.9 | 254.2 |
+
+These figures are a reproducible smoke-test snapshot, not a production benchmark. The three-query sample is too small to establish general retrieval performance. Interpret the metrics alongside the per-query CSV and a larger, manually reviewed, held-out evaluation set.
+
 Do not report results from the starter dataset as production accuracy. Review gold labels against complete source clauses and maintain a held-out test set. RAGAS scores are evaluation estimates, not legal certification.
